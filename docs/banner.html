@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>dupe banner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;900&display=swap" rel="stylesheet">
+<style>
+  html, body { margin: 0; background: #ffffff; }
+  .banner {
+    position: relative; width: 1200px; height: 675px; overflow: hidden; box-sizing: border-box;
+    background: #ffffff; color: #3c3c3c; font-family: Nunito, "Segoe UI", system-ui, sans-serif;
+    display: grid; grid-template-columns: 500px 1fr; align-items: center; padding: 56px 64px;
+  }
+  .copy h1 { font-weight: 900; font-size: 60px; line-height: 1.02; letter-spacing: -0.02em; margin: 0; text-transform: lowercase; color: #3c3c3c; }
+  .copy p { font-weight: 700; font-size: 22px; line-height: 1.35; color: #6f6f6f; margin: 22px 0 0; max-width: 420px; }
+  .copy .url { display: inline-flex; align-items: center; gap: 12px; margin-top: 34px; font-weight: 900; font-size: 24px; color: #1b91e3; }
+  .copy .url svg { width: 34px; height: 34px; }
+  .grid { display: grid; grid-template-columns: 96px repeat(4, 116px); grid-auto-rows: 116px; gap: 10px 8px; justify-content: end; align-items: center; }
+  .grid .h { font-weight: 900; font-size: 15px; letter-spacing: 0.04em; text-transform: uppercase; color: #6f6f6f; text-align: center; height: auto; }
+  .grid .h.stock { color: #afafaf; }
+  .grid .r { font-weight: 900; font-size: 16px; color: #3c3c3c; text-align: right; padding-right: 8px; }
+  .grid img { width: 108px; height: 108px; display: block; margin: 0 auto; border-radius: 24px; }
+  .grid .h.c { color: var(--c); }
+  .badge { position: absolute; right: 64px; bottom: 30px; font-weight: 700; font-size: 15px; color: #afafaf; }
+</style>
+</head>
+<body>
+<div class="banner" id="banner">
+  <div class="copy">
+    <h1>one app, as many profiles as you need</h1>
+    <p>Claude, ChatGPT, Grok Bot or any Electron app. Own login, own data, own icon per profile. macOS, Windows, Linux.</p>
+    <div class="url">
+      <svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="14" fill="#1b91e3"/><rect x="14" y="14" width="22" height="22" rx="6" fill="#fff" opacity=".55"/><rect x="28" y="28" width="22" height="22" rx="6" fill="#fff"/></svg>
+      github.com/HKTITAN/dupe
+    </div>
+  </div>
+  <div class="grid">
+    <div></div>
+    <div class="h stock">personal</div>
+    <div class="h c" style="--c:#1b91e3">work</div>
+    <div class="h c" style="--c:#25a351">client a</div>
+    <div class="h c" style="--c:#996fda">sandbox</div>
+
+    <div class="r">Claude</div>
+    <img src="banner/claude.png" alt=""><img src="banner/claude-blue.png" alt=""><img src="banner/claude-green.png" alt=""><img src="banner/claude-purple.png" alt="">
+
+    <div class="r">ChatGPT</div>
+    <img src="banner/chatgpt.png" alt=""><img src="banner/chatgpt-blue.png" alt=""><img src="banner/chatgpt-green.png" alt=""><img src="banner/chatgpt-purple.png" alt="">
+
+    <div class="r">Grok Bot</div>
+    <img src="banner/grok.png" alt=""><img src="banner/grok-blue.png" alt=""><img src="banner/grok-green.png" alt=""><img src="banner/grok-purple.png" alt="">
+  </div>
+  <div class="badge">blue still means work · after @wustep</div>
+</div>
+</body>
+</html>

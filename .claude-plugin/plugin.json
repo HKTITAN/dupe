@@ -1,0 +1,15 @@
+{
+  "name": "dupe",
+  "version": "0.1.0",
+  "description": "Build isolated, colour-coded profiles of desktop apps (Claude, ChatGPT, Grok Bot, any Electron app) and recolour icons, from your agent.",
+  "author": {
+    "name": "Harshit Khemani",
+    "url": "https://github.com/HKTITAN"
+  },
+  "homepage": "https://hktitan.github.io/dupe/",
+  "repository": "https://github.com/HKTITAN/dupe",
+  "license": "MIT",
+  "keywords": ["profiles", "electron", "work", "personal", "multi-account", "icons"],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json"
+}

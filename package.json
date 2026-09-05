@@ -1,0 +1,37 @@
+{
+  "name": "dupe",
+  "version": "0.1.0",
+  "description": "Run any desktop app as several isolated, colour-coded profiles on macOS, Windows and Linux.",
+  "type": "module",
+  "bin": {
+    "dupe": "bin/dupe.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "docs",
+    "skills",
+    "plugin.json",
+    "mcp.json",
+    ".mcp.json",
+    ".claude-plugin",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "keywords": [
+    "electron",
+    "profiles",
+    "work",
+    "personal",
+    "multi-account",
+    "icon",
+    "claude",
+    "chatgpt"
+  ],
+  "license": "MIT"
+}
