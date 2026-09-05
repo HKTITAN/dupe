@@ -175,7 +175,7 @@ export function build(app, opts, log = () => {}) {
   return {
     app: app.id, appName: app.name, profile: opts.profile, label: opts.label, color: opts.color, treatment, custom: !!app.custom,
     platform: 'linux', dataDir: opts.dataDir, desktop: desktopFile, wmClass, iconName, source: found.desktop || found.exec,
-    iconPng: (pngs.find((p) => p.size === 256) || pngs[pngs.length - 1]).file,
+    iconPng: (pngs.find((p) => p.size === 256) || pngs[pngs.length - 1]).file, iconFile: opts.iconFile || null,
     extraArgs: opts.extraArgs || [], extraEnv: opts.extraEnv || {}, builtAt: new Date().toISOString(),
   };
 }

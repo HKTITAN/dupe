@@ -25,7 +25,7 @@ node <plugin-root>/bin/dupe.js open claude work
 node <plugin-root>/bin/dupe.js ui                             # the browser interface, connected to this computer
 ```
 
-If `dupe` is installed globally (`npm install -g dupe`), the command is just `dupe`.
+If `dupe` is installed globally (`npm install -g @hktitan/dupe`), the command is just `dupe`.
 
 ## Process
 

@@ -21,10 +21,10 @@ Usage
 Options for add / rebuild
   --color <name|#hex>   Profile colour. Defaults to the next unused palette colour.
   --label <text>        Display name. Defaults to "<App> <Profile>".
-  --treatment <t>       auto | hue | ramp-light | ramp-dark   (how the icon is recoloured)
+  --treatment <t>       auto | hue | ramp-light | ramp-dark | none   (none keeps the icon as is)
   --arg <flag>          Extra launch flag (repeatable)
   --env KEY=VALUE       Extra environment variable (repeatable)
-  --icon <png>          Use this icon instead of the app's own (Linux, or when extraction fails)
+  --icon <file>         Use this icon (.png .ico .icns .exe) instead of the app's own
   --purge               With remove: also delete the profile's data
 
 Options for ui

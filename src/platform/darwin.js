@@ -12,7 +12,7 @@ import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { decodePng } from '../image/png.js';
 import { largestFromIcns } from '../image/icns.js';
-import { makeIcon, writeIcnsFile, writePng } from '../icon.js';
+import { loadIcon, makeIcon, writeIcnsFile, writePng } from '../icon.js';
 
 const PB = '/usr/libexec/PlistBuddy';
 const APPS_DIRS = ['/Applications', path.join(os.homedir(), 'Applications')];
@@ -86,9 +86,9 @@ export function build(app, opts, log = () => {}) {
 
   try {
     // Icon first, so a bad icon never leaves a half-built bundle behind.
-    const source = loadBundleIcon(src, iconFile, tmp);
+    const source = opts.iconFile ? loadIcon(opts.iconFile) : loadBundleIcon(src, iconFile, tmp);
     const { master, treatment } = makeIcon(source, opts.color, opts.treatment);
-    log(`  icon        ${iconFile} ${source.width}px → ${opts.color} (${treatment})`);
+    log(`  icon        ${opts.iconFile ? path.basename(opts.iconFile) : iconFile} ${source.width}px → ${opts.color} (${treatment})`);
 
     log(`  clone       ${dup}`);
     spawnSync('pkill', ['-f', `${dup}/Contents/MacOS`], { stdio: 'ignore' });
@@ -144,7 +144,7 @@ export function build(app, opts, log = () => {}) {
 
     return {
       app: app.id, appName: app.name, profile: opts.profile, label: opts.label, color: opts.color, treatment, custom: !!app.custom,
-      platform: 'darwin', dataDir: opts.dataDir, bundle: dup, bundleId: newId, source: src, iconPng,
+      platform: 'darwin', dataDir: opts.dataDir, bundle: dup, bundleId: newId, source: src, iconPng, iconFile: opts.iconFile || null,
       extraArgs: opts.extraArgs || [], extraEnv: opts.extraEnv || {}, builtAt: new Date().toISOString(),
     };
   } finally {

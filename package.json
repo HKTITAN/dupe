@@ -1,6 +1,6 @@
 {
-  "name": "dupe",
-  "version": "0.1.0",
+  "name": "@hktitan/dupe",
+  "version": "0.1.1",
   "description": "Run any desktop app as several isolated, colour-coded profiles on macOS, Windows and Linux.",
   "type": "module",
   "bin": {
@@ -21,7 +21,10 @@
     "node": ">=20"
   },
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "build:web": "node scripts/build-web.js",
+    "build:embed": "node scripts/build-web.js && node scripts/build-embed.js",
+    "build:bin": "node scripts/build-web.js && node scripts/build-embed.js && node scripts/build-bin.js"
   },
   "keywords": [
     "electron",
@@ -33,5 +36,17 @@
     "claude",
     "chatgpt"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/HKTITAN/dupe.git"
+  },
+  "homepage": "https://hktitan.github.io/dupe/",
+  "bugs": {
+    "url": "https://github.com/HKTITAN/dupe/issues"
+  },
+  "author": "Harshit Khemani (https://github.com/HKTITAN)"
 }

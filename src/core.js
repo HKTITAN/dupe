@@ -1,8 +1,9 @@
 // Platform-neutral operations shared by the CLI and the local UI server.
 import fs from 'node:fs';
+import path from 'node:path';
 import { APPS, findApp, customApp } from './apps.js';
 import { NAMED, ORDER, resolveColor, nextColor } from './palette.js';
-import { loadStore, saveStore, upsertProfile, removeProfile, profileDataDir, slug, titleCase } from './store.js';
+import { DUPE_HOME, loadStore, saveStore, upsertProfile, removeProfile, profileDataDir, slug, titleCase } from './store.js';
 
 export async function backend() {
   switch (process.platform) {
@@ -30,19 +31,32 @@ export function parseEnv(list) {
   return out;
 }
 
+const TREATMENTS = new Set(['auto', 'hue', 'ramp-light', 'ramp-dark', 'none']);
+
 export function prepare(app, profileName, values, store, existing) {
   const profile = slug(profileName);
   if (!profile) throw new Error('Profile name must contain a letter or digit.');
   const used = store.profiles.filter((p) => p.app === app.id && p.profile !== profile).map((p) => p.color);
   const color = resolveColor(values.color) || (existing && existing.color) || nextColor(used);
   const label = values.label || (existing && existing.label) || `${app.name} ${titleCase(profile)}`;
+  const treatment = values.treatment || (existing && existing.treatment) || 'auto';
+  if (!TREATMENTS.has(treatment)) throw new Error(`Treatment must be one of ${[...TREATMENTS].join(', ')}.`);
+  // A custom icon may arrive as a path (--icon) or as base64 PNG data from
+  // the interface; the data is saved once so rebuilds keep using it.
+  let iconFile = values.icon ? path.resolve(values.icon) : null;
+  if (values.iconData) {
+    const dir = path.join(DUPE_HOME, 'icons');
+    fs.mkdirSync(dir, { recursive: true });
+    iconFile = path.join(dir, `${app.id}-${profile}-source.png`);
+    fs.writeFileSync(iconFile, Buffer.from(String(values.iconData).replace(/^data:[^,]*,/, ''), 'base64'));
+  }
+  if (!iconFile && existing && existing.iconFile && fs.existsSync(existing.iconFile) && values.icon !== '') iconFile = existing.iconFile;
   return {
-    profile, label, color,
-    treatment: values.treatment || (existing && existing.treatment) || 'auto',
+    profile, label, color, treatment,
     dataDir: (existing && existing.dataDir) || profileDataDir(app.id, profile),
     extraArgs: values.arg && values.arg.length ? values.arg : (existing && existing.extraArgs) || [],
     extraEnv: values.env && values.env.length ? parseEnv(values.env) : (existing && existing.extraEnv) || {},
-    iconFile: values.icon,
+    iconFile,
   };
 }
 

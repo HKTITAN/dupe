@@ -28,7 +28,8 @@ const TOOLS = [
         profile: { type: 'string', description: 'Short profile name, e.g. "work" or "client-a"' },
         color: { type: 'string', description: 'Palette name (blue, green, purple, amber, red, teal, pink, gray) or #rrggbb. Default: next unused palette colour for that app.' },
         label: { type: 'string', description: 'Display name. Default: "<App> <Profile>"' },
-        treatment: { type: 'string', enum: ['auto', 'hue', 'ramp-light', 'ramp-dark'], description: 'How the icon is recoloured. Default auto.' },
+        treatment: { type: 'string', enum: ['auto', 'hue', 'ramp-light', 'ramp-dark', 'none'], description: 'How the icon is recoloured. Default auto; none keeps the icon as is.' },
+        icon: { type: 'string', description: 'Absolute path to a custom icon (.png, .ico, .icns, .exe) to use instead of the app\'s own' },
         args: { type: 'array', items: { type: 'string' }, description: 'Extra launch flags' },
         env: { type: 'object', additionalProperties: { type: 'string' }, description: 'Extra environment variables for the launcher' },
       },
@@ -87,7 +88,7 @@ async function callTool(name, a = {}) {
       return { ...text(JSON.stringify(s, null, 2)), structuredContent: s };
     }
     case 'add_profile': {
-      const record = await core.add(a.app, a.profile, { color: a.color, label: a.label, treatment: a.treatment, arg: a.args, env: a.env ? Object.entries(a.env).map(([k, v]) => `${k}=${v}`) : undefined }, log);
+      const record = await core.add(a.app, a.profile, { color: a.color, label: a.label, treatment: a.treatment, icon: a.icon, arg: a.args, env: a.env ? Object.entries(a.env).map(([k, v]) => `${k}=${v}`) : undefined }, log);
       return { ...text(`${lines.join('\n')}\n\nBuilt "${record.label}". ${core.hint(record)}`), structuredContent: { record, hint: core.hint(record) } };
     }
     case 'remove_profile': {

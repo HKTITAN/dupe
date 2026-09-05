@@ -30,6 +30,7 @@ export function loadIcon(file) {
 /** Recolour and return the master image plus the treatment that was used. */
 export function makeIcon(source, colorHex, treatment = 'auto') {
   const stats = analyze(source);
+  if (treatment === 'none') return { master: source, treatment: 'none', stats };
   const chosen = treatment === 'auto' ? chooseTreatment(stats) : treatment;
   const { img } = recolor(source, colorHex, { treatment: chosen, stats });
   return { master: img, treatment: chosen, stats };

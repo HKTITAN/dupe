@@ -221,7 +221,7 @@
           <p>Building a profile means compiling a launcher and writing files next to the app, so it runs on your own machine. Install the tool, then open this same interface connected to it:</p>
         </div>
         <div class="cmds">
-          <div class="cmd"><pre><code>npm install -g dupe</code></pre><button class="btn secondary sm copy" type="button" data-copy="npm install -g dupe"><span>Copy</span></button></div>
+          <div class="cmd"><pre><code>npm install -g @hktitan/dupe</code></pre><button class="btn secondary sm copy" type="button" data-copy="npm install -g @hktitan/dupe"><span>Copy</span></button></div>
           <div class="cmd"><pre><code>dupe ui</code></pre><button class="btn secondary sm copy" type="button" data-copy="dupe ui"><span>Copy</span></button></div>
         </div>
         <div>
@@ -258,6 +258,20 @@
             <div>
               <h3 id="pcolor-h">3. Colour</h3>
               <div class="strip" role="radiogroup" aria-labelledby="pcolor-h" id="pstrip"></div>
+              <div class="row" style="margin-top:12px; align-items:flex-end">
+                <label class="field" style="max-width:170px">Custom hex
+                  <input class="input mono" id="phex" placeholder="#rrggbb" autocomplete="off" spellcheck="false" aria-describedby="hex-help">
+                </label>
+                <div class="field"><span>Own icon</span>
+                  <div class="row">
+                    <button class="btn secondary sm" type="button" id="picon-btn"><span>Choose file</span></button>
+                    <span class="small muted" id="picon-name">Using the app's own icon</span>
+                    <button class="btn secondary sm" type="button" id="picon-clear" hidden><span>Use app icon</span></button>
+                  </div>
+                  <input type="file" id="picon" class="sr" accept=".png,.svg,.jpg,.jpeg,.webp,.ico,.icns,image/*">
+                </div>
+              </div>
+              <label class="small" id="precolor-wrap" hidden style="display:flex; gap:8px; align-items:center; margin-top:10px"><input type="checkbox" id="precolor" checked> Recolour my icon to the chosen colour</label>
             </div>
           </div>
           <div class="stack">
@@ -388,23 +402,43 @@ function nextColor(id) {
 }
 const sourceOf = (rec) => (rec.custom ? rec.source : rec.app);
 
-// One strip = original + every palette colour, rendered with the app's own icon.
-function strip(el, source, current, onPick, { original = true } = {}) {
+// One strip = original + every palette colour. `urlFor(hex|null)` supplies the
+// image: the server's rendering of the app's icon, or a local rendering of an
+// icon the user supplied.
+function strip(el, urlFor, current, onPick, { original = true } = {}) {
   el.innerHTML = '';
   if (original) {
     const o = document.createElement('div'); o.className = 'mini orig';
-    o.innerHTML = `<img alt="" src="${iconUrl(source)}"><small>original</small>`;
+    o.innerHTML = `<img alt="" src="${urlFor(null)}"><small>original</small>`;
     el.appendChild(o);
   }
   for (const c of live.colors) {
     const b = document.createElement('button');
     b.type = 'button'; b.className = 'mini'; b.setAttribute('role', 'radio'); b.dataset.hex = c.hex;
     b.setAttribute('aria-label', c.name); b.setAttribute('aria-checked', String(c.hex === current));
-    b.innerHTML = `<img alt="" src="${iconUrl(source, c.hex)}"><small>${c.name}</small>`;
+    b.innerHTML = `<img alt="" src="${urlFor(c.hex)}"><small>${c.name}</small>`;
     b.addEventListener('click', () => { for (const x of el.querySelectorAll('[role=radio]')) x.setAttribute('aria-checked', String(x === b)); onPick(c.hex); });
     el.appendChild(b);
   }
 }
+const uncheckStrip = (el) => { for (const x of el.querySelectorAll('[role=radio]')) x.setAttribute('aria-checked', 'false'); };
+const validHex = (v) => (/^#?[0-9a-f]{6}$/i.test(v.trim()) ? (v.trim().startsWith('#') ? v.trim() : '#' + v.trim()).toLowerCase() : null);
+
+// A user-supplied icon is previewed locally with the same pipeline the server
+// uses, then sent along with the build.
+let customIcon = null; // { name, img, png, stats, cache: Map }
+function localIconUrl(hex, doRecolor) {
+  const key = `${hex || ''}|${doRecolor}`;
+  if (customIcon.cache.has(key)) return customIcon.cache.get(key);
+  const img = hex && doRecolor ? recolor(customIcon.img, hex, { stats: customIcon.stats }).img : customIcon.img;
+  const r = resize(img, 128, 128);
+  const c = document.createElement('canvas'); c.width = c.height = 128;
+  c.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(r.data.buffer, r.data.byteOffset, r.data.length), 128, 128), 0, 0);
+  const url = c.toDataURL('image/png');
+  customIcon.cache.set(key, url);
+  return url;
+}
+const previewUrlFor = () => (customIcon ? (hex) => localIconUrl(hex, $('#precolor').checked) : (hex) => iconUrl(currentSource(), hex));
 
 function renderApps() {
   const el = $('#apps'); el.innerHTML = '';
@@ -445,7 +479,8 @@ function pickApp(id) {
   $('#build-out').hidden = true;
   const app = currentApp();
   $('#pname').value = ''; $('#pname').placeholder = profilesOf(id).some((p) => p.profile === 'work') ? 'client-a' : 'work';
-  $('#plabel').value = '';
+  $('#plabel').value = ''; $('#phex').value = '';
+  clearCustomIcon();
   pcolor = id === '__custom' ? live.colors[0].hex : nextColor(id);
   $('#build-note').textContent = app.verified ? '' : "This preset relies on the Electron flag and hasn't been tested app by app.";
   refreshBuilder();
@@ -457,19 +492,51 @@ function refreshBuilder() {
   const label = `${app.name} ${titleCase(name)}`;
   $('#plabel').placeholder = label;
   $('#pbig-label').textContent = $('#plabel').value.trim() || label;
-  $('#pbig-meta').textContent = `${colorName(pcolor)} · ${pcolor}`;
+  const recolouring = !customIcon || $('#precolor').checked;
+  $('#pbig-meta').textContent = recolouring ? `${colorName(pcolor)} · ${pcolor}` : 'your icon, as is';
   const source = currentSource();
-  if (source) {
-    $('#pbig-img').src = iconUrl(source, pcolor);
-    if ($('#pstrip').dataset.source !== source) { $('#pstrip').dataset.source = source; strip($('#pstrip'), source, pcolor, (hex) => { pcolor = hex; refreshBuilder(); }); }
+  if (source || customIcon) {
+    const urlFor = previewUrlFor();
+    $('#pbig-img').src = urlFor(pcolor);
+    const key = `${source}|${customIcon ? customIcon.name : ''}|${recolouring}`;
+    if ($('#pstrip').dataset.key !== key) {
+      $('#pstrip').dataset.key = key;
+      strip($('#pstrip'), urlFor, pcolor, (hex) => { pcolor = hex; $('#phex').value = ''; refreshBuilder(); });
+      if (!live.colors.some((c) => c.hex === pcolor)) uncheckStrip($('#pstrip'));
+    }
   } else {
-    $('#pbig-img').removeAttribute('src'); $('#pstrip').innerHTML = ''; $('#pstrip').dataset.source = '';
+    $('#pbig-img').removeAttribute('src'); $('#pstrip').innerHTML = ''; $('#pstrip').dataset.key = '';
   }
 }
 $('#pname').addEventListener('input', refreshBuilder);
 $('#plabel').addEventListener('input', refreshBuilder);
 let cpathTimer;
 $('#cpath').addEventListener('input', () => { clearTimeout(cpathTimer); cpathTimer = setTimeout(refreshBuilder, 350); });
+$('#phex').addEventListener('input', (e) => {
+  const hex = validHex(e.target.value);
+  e.target.setCustomValidity(hex || !e.target.value ? '' : '6 hex digits');
+  if (!hex) return;
+  pcolor = hex; uncheckStrip($('#pstrip')); refreshBuilder();
+});
+function clearCustomIcon() {
+  customIcon = null;
+  $('#picon').value = ''; $('#picon-name').textContent = "Using the app's own icon"; $('#picon-clear').hidden = true; $('#precolor-wrap').hidden = true; $('#precolor').checked = true;
+}
+$('#picon-btn').addEventListener('click', () => $('#picon').click());
+$('#picon-clear').addEventListener('click', () => { clearCustomIcon(); refreshBuilder(); });
+$('#precolor').addEventListener('change', refreshBuilder);
+$('#picon').addEventListener('change', async (e) => {
+  const f = e.target.files[0]; if (!f) return;
+  try {
+    const img = await loadFile(f);
+    customIcon = { name: f.name, img, stats: analyze(img), png: encodePng(img), cache: new Map() };
+    $('#picon-name').textContent = f.name; $('#picon-clear').hidden = false; $('#precolor-wrap').hidden = false;
+  } catch (err) {
+    clearCustomIcon(); $('#picon-name').textContent = err.message;
+  }
+  refreshBuilder();
+});
+const b64 = (bytes) => { let s = ''; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000)); return btoa(s); };
 
 $('#build').addEventListener('click', async () => {
   const app = currentApp();
@@ -479,11 +546,13 @@ $('#build').addEventListener('click', async () => {
   if (pickedApp === '__custom' && !app.path) { out.className = 'notice err'; out.textContent = "Couldn't build. Enter the path to the app first."; out.hidden = false; $('#cpath').focus(); return; }
   const btn = $('#build'); btn.disabled = true; btn.querySelector('span').textContent = 'Building…';
   try {
-    const r = await api('/api/add', { app: pickedApp === '__custom' ? app.path : app.id, profile, label, color: pcolor, treatment: 'auto' });
+    const body = { app: pickedApp === '__custom' ? app.path : app.id, profile, label, color: pcolor, treatment: customIcon && !$('#precolor').checked ? 'none' : 'auto' };
+    if (customIcon) body.iconData = b64(customIcon.png);
+    const r = await api('/api/add', body);
     live.profiles = live.profiles.filter((p) => !(p.app === r.record.app && p.profile === r.record.profile)).concat([r.record]);
     out.className = 'notice ok'; out.textContent = `Built ${r.record.label}! ${r.hint}`; out.hidden = false;
     renderApps(); renderProfiles(r.record);
-    if (pickedApp !== '__custom') { $('#pname').value = ''; $('#pname').placeholder = profilesOf(pickedApp).some((p) => p.profile === 'work') ? 'client-a' : 'work'; pcolor = nextColor(pickedApp); $('#pstrip').dataset.source = ''; refreshBuilder(); }
+    if (pickedApp !== '__custom') { $('#pname').value = ''; $('#pname').placeholder = profilesOf(pickedApp).some((p) => p.profile === 'work') ? 'client-a' : 'work'; pcolor = nextColor(pickedApp); $('#phex').value = ''; clearCustomIcon(); $('#pstrip').dataset.key = ''; refreshBuilder(); }
   } catch (e) {
     out.className = 'notice err'; out.textContent = `Couldn't build. ${e.message}`; out.hidden = false;
   } finally {
@@ -506,23 +575,27 @@ function renderProfiles(fresh) {
       <div class="row"><button class="btn secondary sm" type="button" data-act="open"><span>Open</span></button><button class="btn secondary sm" type="button" data-act="edit"><span>Customise</span></button><button class="btn danger sm" type="button" data-act="remove"><span>Remove</span></button></div>
       <div class="edit" data-edit hidden>
         <label class="field">Shown as <input class="input" data-label value="${p.label.replace(/"/g, '&quot;')}"></label>
-        <div><h3>Colour</h3><div class="strip" data-strip></div></div>
+        <div><h3>Colour</h3><div class="strip" data-strip></div>
+          <label class="field" style="max-width:170px; margin-top:10px">Custom hex <input class="input mono" data-hex placeholder="#rrggbb" autocomplete="off" spellcheck="false"></label>
+          ${p.iconFile ? '<p class="small muted" style="margin:8px 0 0">This profile uses your own icon. To change it, build the same profile again from the builder above with a new file.</p>' : ''}
+        </div>
         <div class="row"><button class="btn sm" type="button" data-act="save"><span>Save changes</span></button><button class="btn secondary sm" type="button" data-act="cancel-edit"><span>Cancel</span></button><span class="small muted" data-status></span></div>
       </div>
       <div class="row" data-confirm hidden style="flex-basis:100%"><span class="small muted">Remove the launcher. Its data can stay for later.</span><button class="btn secondary sm" type="button" data-act="keep"><span>Keep data</span></button><button class="btn danger sm" type="button" data-act="purge"><span>Delete data</span></button><button class="btn secondary sm" type="button" data-act="cancel"><span>Cancel</span></button></div>`;
     let editColor = p.color;
+    row.querySelector('[data-hex]').addEventListener('input', (e) => { const hex = validHex(e.target.value); if (hex) { editColor = hex; uncheckStrip(row.querySelector('[data-strip]')); } });
     row.addEventListener('click', async (e) => {
       const b = e.target.closest('[data-act]'); if (!b) return;
       const act = b.dataset.act;
       const confirm = row.querySelector('[data-confirm]'), edit = row.querySelector('[data-edit]'), status = row.querySelector('[data-status]');
       if (act === 'open') { b.disabled = true; try { await api('/api/open', { app: sourceOf(p), profile: p.profile }); } catch (err) { alert(`Couldn't open. ${err.message}`); } b.disabled = false; return; }
-      if (act === 'edit') { edit.hidden = !edit.hidden; confirm.hidden = true; if (!edit.hidden && !edit.dataset.ready) { edit.dataset.ready = '1'; strip(row.querySelector('[data-strip]'), sourceOf(p), editColor, (hex) => { editColor = hex; }, { original: false }); } return; }
+      if (act === 'edit') { edit.hidden = !edit.hidden; confirm.hidden = true; if (!edit.hidden && !edit.dataset.ready) { edit.dataset.ready = '1'; const src = sourceOf(p); strip(row.querySelector('[data-strip]'), (hex) => iconUrl(src, hex), editColor, (hex) => { editColor = hex; row.querySelector('[data-hex]').value = ''; }, { original: false }); } return; }
       if (act === 'cancel-edit') { edit.hidden = true; return; }
       if (act === 'save') {
         const label = row.querySelector('[data-label]').value.trim() || p.label;
         for (const x of row.querySelectorAll('button')) x.disabled = true; status.textContent = 'Rebuilding…';
         try {
-          const r = await api('/api/add', { app: sourceOf(p), profile: p.profile, label, color: editColor, treatment: 'auto' });
+          const r = await api('/api/add', { app: sourceOf(p), profile: p.profile, label, color: editColor, treatment: p.treatment === 'none' ? 'none' : 'auto' });
           live.profiles = live.profiles.map((x) => (x.app === r.record.app && x.profile === r.record.profile ? r.record : x));
           renderApps(); renderProfiles(r.record);
         } catch (err) { status.textContent = `Couldn't save. ${err.message}`; for (const x of row.querySelectorAll('button')) x.disabled = false; }
@@ -554,6 +627,9 @@ async function connect() {
     text.textContent = `Connected · ${os}`;
     $('#live').hidden = false;
     renderApps(); renderProfiles();
+    // Deep link: ?app=claude opens the builder for that app.
+    const wanted = new URLSearchParams(location.search).get('app');
+    if (wanted && (wanted === '__custom' || live.apps.some((a) => a.id === wanted && a.found))) pickApp(wanted);
   } catch {
     text.textContent = 'Browser only';
     $('#hosted').hidden = false;

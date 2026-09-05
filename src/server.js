@@ -11,6 +11,7 @@ import { loadIcon, makeIcon } from './icon.js';
 import { encodePng } from './image/png.js';
 import { resize } from './image/resize.js';
 import { loadStore } from './store.js';
+import { EMBEDDED } from './embedded.js';
 
 const DOCS = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'docs');
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css', '.png': 'image/png', '.svg': 'image/svg+xml', '.md': 'text/markdown; charset=utf-8', '.ico': 'image/x-icon', '.json': 'application/json' };
@@ -143,7 +144,7 @@ async function api(req, res, url) {
   const log = (l) => lines.push(l);
   try {
     if (p === '/api/add') {
-      const record = await core.add(body.app, body.profile, { color: body.color, label: body.label, treatment: body.treatment }, log);
+      const record = await core.add(body.app, body.profile, { color: body.color, label: body.label, treatment: body.treatment, iconData: body.iconData, icon: body.icon }, log);
       return json(res, 200, { record, hint: core.hint(record), log: lines });
     }
     if (p === '/api/remove') {
@@ -164,16 +165,24 @@ async function api(req, res, url) {
   }
 }
 
+// Static files come from docs/ in a checkout, or from the copies embedded in
+// a compiled binary (see scripts/build-embed.js).
 function serveStatic(req, res, url) {
   let rel = decodeURIComponent(url.pathname);
   if (rel === '/') rel = '/index.html';
+  const type = TYPES[path.extname(rel).toLowerCase()] || 'application/octet-stream';
   const file = path.normalize(path.join(DOCS, rel));
-  if (!file.startsWith(DOCS) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
-    res.writeHead(404, { 'Content-Type': 'text/plain' });
-    return res.end('Not found');
+  if (file.startsWith(DOCS) && fs.existsSync(file) && !fs.statSync(file).isDirectory()) {
+    res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'no-store' });
+    return fs.createReadStream(file).pipe(res);
   }
-  res.writeHead(200, { 'Content-Type': TYPES[path.extname(file).toLowerCase()] || 'application/octet-stream', 'Cache-Control': 'no-store' });
-  fs.createReadStream(file).pipe(res);
+  const embedded = EMBEDDED[`docs${rel.replace(/\\/g, '/')}`];
+  if (embedded !== undefined) {
+    res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'no-store' });
+    return res.end(embedded);
+  }
+  res.writeHead(404, { 'Content-Type': 'text/plain' });
+  res.end('Not found');
 }
 
 export function serve({ port = 0, open = true } = {}) {

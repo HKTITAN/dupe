@@ -8,7 +8,7 @@ Run any desktop app as several isolated, colour-coded profiles. One install of C
 
 Three ways in:
 
-- **Command line**: `npm install -g dupe`, then `dupe add claude work`.
+- **Command line**: `npm install -g @hktitan/dupe`, then `dupe add claude work`.
 - **Interface**: `dupe ui` opens a page connected to your computer; the same page at [hktitan.github.io/dupe](https://hktitan.github.io/dupe/) recolours icons on any device, phones included.
 - **Your agent**: the repo is an [Agent Plugin](https://agent-plugins.org/) and a Claude Code plugin, with skills and an MCP server, so an agent can build profiles without you installing anything else. See [Use it from your agent](#use-it-from-your-agent).
 
@@ -24,11 +24,36 @@ Built "Claude Work". It's in the Start Menu; pin it to the taskbar from there.
 
 ## Install
 
+**Download a binary** from the [latest release](https://github.com/HKTITAN/dupe/releases/latest). Nothing to install, no Node needed:
+
+| File | For |
+| --- | --- |
+| `dupe-windows-x64.exe` | Windows 10/11 |
+| `dupe-macos-arm64` | Apple silicon Macs |
+| `dupe-macos-x64` | Intel Macs |
+| `dupe-linux-x64`, `dupe-linux-arm64` | Linux |
+
+On macOS and Linux, mark it executable and, on macOS, clear the download quarantine once:
+
 ```bash
-npm install -g dupe        # or: npx dupe …
+chmod +x dupe-macos-arm64 && xattr -d com.apple.quarantine dupe-macos-arm64 && ./dupe-macos-arm64 ui
 ```
 
-Node 20 or newer. Nothing else: the image work (PNG, ICO, ICNS, PE resource extraction, OKLCH recolouring) is pure JavaScript, and each platform backend uses only tools the OS already ships.
+Or with Node 20 or newer:
+
+```bash
+npm install -g @hktitan/dupe        # or run from a checkout: node bin/dupe.js …
+```
+
+Either way there are no runtime dependencies: the image work (PNG, ICO, ICNS, PE resource extraction, OKLCH recolouring) is pure JavaScript, and each platform backend uses only tools the OS already ships. `SHA256SUMS.txt` on the release page lists the checksums.
+
+## Screenshots
+
+![Pick an app: every installed app with its original icon and the profiles it already has](docs/screenshots/apps.png)
+
+![Name the profile and pick its colour from the app's own icon rendered in every palette colour](docs/screenshots/builder.png)
+
+![Your profiles: open, customise the label or colour in place, or remove](docs/screenshots/profiles.png)
 
 ## Use
 
@@ -54,7 +79,9 @@ dupe colors                    The palette
 | `vscode` `cursor` | `--extensions-dir` | Electron flag, not individually tested |
 | `chrome` `edge` `brave` | – | Chromium flag |
 
-Profiles are independent of each other and of the stock app. The first profile of an app is blue; each further one takes the next palette colour (green, purple, amber, red, teal, pink, gray) unless you pass `--color`. All eight sit at the same OKLCH lightness and chroma, so a Dock full of dupes reads as one family that differs only by hue.
+Profiles are independent of each other and of the stock app. The first profile of an app is blue; each further one takes the next palette colour (green, purple, amber, red, teal, pink, gray) unless you pass `--color`, which also accepts any `#rrggbb`. All eight palette colours sit at the same OKLCH lightness and chroma, so a Dock full of dupes reads as one family that differs only by hue.
+
+Your own icon works too: `--icon some.png` (or `.ico`, `.icns`, `.exe`) replaces the app's icon and is recoloured like any other; add `--treatment none` to keep it exactly as supplied. The interface has the same two controls, a custom hex field and a file picker, with the preview updating live.
 
 ## How the icon is recoloured
 
@@ -130,7 +157,9 @@ Two skills teach the agent when and how to build profiles (`dupe-profiles`) and 
 
 ```bash
 npm test                       # node:test, pure-JS image pipeline and treatment selection
-node scripts/build-web.js      # regenerate docs/dupe-image.js (the browser build of src/image)
+npm run build:web              # regenerate docs/dupe-image.js (the browser build of src/image)
+npm run build:embed            # regenerate src/embedded.js (launcher template + UI, for the binaries)
+npm run build:bin              # cross-compile dist/dupe-* for every platform (needs Bun on the build machine)
 ```
 
 `src/image/` is standalone and dependency-free: PNG codec, ICO and ICNS read/write, PE icon extraction, area-averaging resize, OKLab/OKLCH conversion and gamut clamping, and the two recolour treatments.

@@ -8,6 +8,7 @@ import path from 'node:path';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { loadIcon, makeIcon, writeIcoFile, writePng } from '../icon.js';
+import { EMBEDDED } from '../embedded.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 import { DUPE_HOME } from '../store.js';
@@ -127,13 +128,14 @@ export function build(app, opts, log = () => {}) {
   fs.mkdirSync(dir, { recursive: true });
   fs.mkdirSync(opts.dataDir, { recursive: true });
 
-  // Icon: recolour the app's own embedded icon.
-  const source = loadIcon(found.exe);
+  // Icon: the app's own embedded icon, or the one the user supplied.
+  const iconSrc = opts.iconFile || found.exe;
+  const source = loadIcon(iconSrc);
   const { master, treatment } = makeIcon(source, opts.color, opts.treatment);
   const ico = path.join(dir, 'icon.ico');
   writeIcoFile(master, ico);
   writePng(master, path.join(dir, 'icon.png'));
-  log(`  icon        ${path.basename(found.exe)} ${source.width}px → ${opts.color} (${treatment})`);
+  log(`  icon        ${path.basename(iconSrc)} ${source.width}px → ${opts.color} (${treatment})`);
 
   // Environment and arguments.
   const env = { ...(app.env ? app.env(opts.dataDir) : {}), ...(opts.extraEnv || {}) };
@@ -141,8 +143,10 @@ export function build(app, opts, log = () => {}) {
   const args = [`--user-data-dir=${opts.dataDir}`, ...(app.args ? app.args(opts.dataDir) : []), ...(opts.extraArgs || [])];
   const aumid = `dupe.${app.id}.${opts.profile}`;
 
-  // Compile the launcher.
-  const template = fs.readFileSync(path.join(here, 'win32-launcher.cs'), 'utf8');
+  // Compile the launcher. The template comes from the source tree when
+  // running from a checkout, or from the embedded copy in a compiled binary.
+  const tplPath = path.join(here, 'win32-launcher.cs');
+  const template = fs.existsSync(tplPath) ? fs.readFileSync(tplPath, 'utf8') : EMBEDDED['win32-launcher.cs'];
   const src = template
     .replace('@LABEL@', opts.label.replace(/"/g, '""'))
     .replace('@AUMID@', aumid)
@@ -170,7 +174,7 @@ export function build(app, opts, log = () => {}) {
   return {
     app: app.id, appName: app.name, profile: opts.profile, label: opts.label, color: opts.color, treatment, custom: !!app.custom,
     platform: 'win32', dataDir: opts.dataDir, launcher: exe, shortcut: lnk, icon: ico, aumid,
-    source: found.exe, sourceKind: found.kind, extraArgs: opts.extraArgs || [], extraEnv: opts.extraEnv || {},
+    source: found.exe, sourceKind: found.kind, extraArgs: opts.extraArgs || [], extraEnv: opts.extraEnv || {}, iconFile: opts.iconFile || null,
     builtAt: new Date().toISOString(),
   };
 }
