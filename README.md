@@ -1,5 +1,9 @@
 # dupe
 
+[![npm](https://img.shields.io/npm/v/%40hktitan%2Fdupe?logo=npm&label=npm)](https://www.npmjs.com/package/@hktitan/dupe)
+[![release](https://img.shields.io/github/v/release/HKTITAN/dupe?label=binaries)](https://github.com/HKTITAN/dupe/releases/latest)
+[![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
 ![One app, as many profiles as you need](docs/banner.png)
 
 Run any desktop app as several isolated, colour-coded profiles. One install of Claude, ChatGPT, Grok Bot, Slack, VS Code or Chrome becomes "Claude Work", "Claude Client A", "Claude Personal": each with its own login, its own data, its own Dock/taskbar entry and a recoloured icon so you can tell them apart at a glance.
