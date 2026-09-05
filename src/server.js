@@ -15,7 +15,35 @@ import { loadStore } from './store.js';
 const DOCS = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'docs');
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css', '.png': 'image/png', '.svg': 'image/svg+xml', '.md': 'text/markdown; charset=utf-8', '.ico': 'image/x-icon', '.json': 'application/json' };
 
+import crypto from 'node:crypto';
+import { DUPE_HOME } from './store.js';
+import { ORDER, NAMED } from './palette.js';
+
+// Recoloured icons are cached in memory and on disk (keyed by source path,
+// colour and the source file's mtime), and pre-rendered for every installed
+// app at startup so the colour strips appear at once.
 const iconCache = new Map();
+const CACHE_DIR = path.join(DUPE_HOME, 'cache', 'icons');
+
+function cacheFile(file, hex) {
+  let mtime = 0;
+  try { mtime = fs.statSync(file).mtimeMs | 0; } catch { /* aliases deny stat */ }
+  const key = crypto.createHash('sha1').update(`${file}|${hex || ''}|${mtime}`).digest('hex');
+  return path.join(CACHE_DIR, `${key}.png`);
+}
+
+async function warmIcons() {
+  try {
+    const s = await core.state();
+    for (const app of s.apps) {
+      if (!app.found) continue;
+      for (const hex of [null, ...ORDER.map((n) => NAMED[n])]) {
+        try { await appIcon(app.id, hex); } catch { /* not every app has an extractable icon */ }
+        await new Promise((r) => setImmediate(r)); // let requests through between renders
+      }
+    }
+  } catch { /* warm-up is best effort */ }
+}
 
 function json(res, status, body) {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
@@ -38,19 +66,34 @@ function sameOrigin(req) {
   return /^(127\.0\.0\.1|localhost|\[::1\]):\d+$/.test(host) && (!req.headers.origin || req.headers.origin.endsWith('//' + host));
 }
 
-async function appIcon(appId, profileHex) {
-  const key = `${appId}:${profileHex || ''}`;
+// The app's own icon, optionally recoloured. `source` is a preset id or a
+// path to the app; results are cached per source and colour.
+async function appIcon(source, profileHex) {
+  const key = `${source}:${profileHex || ''}`;
   if (iconCache.has(key)) return iconCache.get(key);
   const be = await core.backend();
-  const app = core.resolveApp(appId);
+  const app = core.resolveApp(source);
   const where = be.locate(app);
   if (!where) throw new Error('not installed');
-  const file = where.exe || (where.bundle ? path.join(where.bundle, 'Contents', 'Resources', 'electron.icns') : null);
+  let file = where.exe || null;
+  if (!file && where.bundle) {
+    const res = path.join(where.bundle, 'Contents', 'Resources');
+    const icns = fs.existsSync(res) ? fs.readdirSync(res).find((f) => f.endsWith('.icns')) : null;
+    file = icns ? path.join(res, icns) : null;
+  }
+  if (!file && where.iconFile) file = where.iconFile;
   if (!file || !fs.existsSync(file)) throw new Error('no icon source');
+  const onDisk = cacheFile(file, profileHex);
+  if (fs.existsSync(onDisk)) {
+    const png = fs.readFileSync(onDisk);
+    iconCache.set(key, png);
+    return png;
+  }
   let img = loadIcon(file);
   if (profileHex) img = makeIcon(img, profileHex, 'auto').master;
   const png = encodePng(resize(img, 128, 128));
   iconCache.set(key, png);
+  try { fs.mkdirSync(CACHE_DIR, { recursive: true }); fs.writeFileSync(onDisk, png); } catch { /* cache is optional */ }
   return png;
 }
 
@@ -58,10 +101,11 @@ async function api(req, res, url) {
   if (!sameOrigin(req)) return json(res, 403, { error: 'Cross-origin requests are not allowed.' });
   const p = url.pathname;
   if (req.method === 'GET' && p === '/api/state') return json(res, 200, await core.state());
-  if (req.method === 'GET' && p.startsWith('/api/app-icon/')) {
-    const [, , , id] = p.split('/');
+  if (req.method === 'GET' && (p.startsWith('/api/app-icon/') || p === '/api/icon')) {
+    const source = p === '/api/icon' ? url.searchParams.get('source') : decodeURIComponent(p.split('/')[3]);
     try {
-      const png = await appIcon(decodeURIComponent(id), url.searchParams.get('color'));
+      if (!source) throw new Error('source required');
+      const png = await appIcon(source, url.searchParams.get('color'));
       res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'private, max-age=300' });
       return res.end(png);
     } catch (e) { return json(res, 404, { error: e.message }); }
@@ -84,6 +128,16 @@ async function api(req, res, url) {
     return json(res, 404, { error: 'no icon' });
   }
   if (req.method !== 'POST') return json(res, 405, { error: 'Method not allowed' });
+  // Development only: docs/banner.html posts its rendered PNG here when the
+  // server was started with DUPE_DEV_BANNER=1. Inert otherwise.
+  if (p === '/api/dev/banner') {
+    if (!process.env.DUPE_DEV_BANNER) return json(res, 404, { error: 'Unknown endpoint' });
+    const chunks = [];
+    await new Promise((resolve, reject) => { req.on('data', (c) => { chunks.push(c); if (chunks.reduce((n, b) => n + b.length, 0) > 2e7) req.destroy(); }); req.on('end', resolve); req.on('error', reject); });
+    const out = path.join(DOCS, 'banner.png');
+    fs.writeFileSync(out, Buffer.concat(chunks));
+    return json(res, 200, { saved: out, bytes: fs.statSync(out).size });
+  }
   const body = await readBody(req);
   const lines = [];
   const log = (l) => lines.push(l);
@@ -137,6 +191,7 @@ export function serve({ port = 0, open = true } = {}) {
       const addr = `http://127.0.0.1:${server.address().port}/`;
       console.log(`dupe ui at ${addr}  (Ctrl-C to stop)`);
       if (open) openBrowser(addr);
+      setTimeout(warmIcons, 50);
       resolve({ server, url: addr });
     });
   });

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>dupe</title>
-<meta name="description" content="Run any desktop app as several isolated, colour-coded profiles. Recolour an icon right here, on any device.">
+<meta name="description" content="Run any desktop app as several isolated, colour-coded profiles. Pick an app, name the profile, see the icon in every colour before you build.">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -22,16 +22,16 @@
     --eel: #4b4b4b;
     --ink: #3c3c3c;
     --feather: #58cc02;
-    --treefrog: #58a700;
     --forest: #367f00;        /* text-bearing green: clears 4.5:1 on snow */
     --forest-lip: #2a6300;
     --macaw: #1cb0f6;
     --macaw-ink: #1899d6;
     --macaw-tint: #ddf4ff;
     --cardinal-ink: #d42020;
-    --lip: #e5e5e5;
     --focus: #4b4b4b;
     --code-bg: #f7f7f7;
+    --stage-light: #f2f2f2;
+    --stage-dark: #1a2126;
     --radius-tile: 12px;
     --radius-card: 16px;
     --ease-out: cubic-bezier(0.25, 1, 0.5, 1);
@@ -39,47 +39,31 @@
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
-      --snow: #131f24;
-      --polar: #202f36;
-      --swan: #37464f;
-      --hare: #52656d;
-      --wolf: #9fb3bc;
-      --eel: #f1f7fb;
-      --ink: #f1f7fb;
-      --forest: #3f9500;
-      --forest-lip: #2f7000;
-      --macaw-ink: #49c0f8;
-      --macaw-tint: #1b3a4a;
-      --cardinal-ink: #ff6b6b;
-      --lip: #37464f;
-      --focus: #f1f7fb;
-      --code-bg: #202f36;
+      --snow: #131f24; --polar: #202f36; --swan: #37464f; --hare: #52656d; --wolf: #9fb3bc; --eel: #f1f7fb; --ink: #f1f7fb;
+      --forest: #3f9500; --forest-lip: #2f7000; --macaw-ink: #49c0f8; --macaw-tint: #1b3a4a; --cardinal-ink: #ff6b6b; --focus: #f1f7fb; --code-bg: #202f36;
     }
   }
   :root[data-theme="dark"] {
     --snow: #131f24; --polar: #202f36; --swan: #37464f; --hare: #52656d; --wolf: #9fb3bc; --eel: #f1f7fb; --ink: #f1f7fb;
-    --forest: #3f9500; --forest-lip: #2f7000; --macaw-ink: #49c0f8; --macaw-tint: #1b3a4a; --cardinal-ink: #ff6b6b; --lip: #37464f; --focus: #f1f7fb; --code-bg: #202f36;
+    --forest: #3f9500; --forest-lip: #2f7000; --macaw-ink: #49c0f8; --macaw-tint: #1b3a4a; --cardinal-ink: #ff6b6b; --focus: #f1f7fb; --code-bg: #202f36;
   }
 
   * { box-sizing: border-box; }
   html { -webkit-text-size-adjust: 100%; }
-  body {
-    margin: 0;
-    background: var(--snow);
-    color: var(--eel);
-    font: 400 16px/1.4 Nunito, "Nunito Sans", "Segoe UI", system-ui, sans-serif;
-    -webkit-font-smoothing: antialiased;
-  }
+  body { margin: 0; background: var(--snow); color: var(--eel); font: 400 16px/1.4 Nunito, "Nunito Sans", "Segoe UI", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
   a { color: var(--macaw-ink); text-decoration: underline; text-underline-offset: 2px; }
   a:hover { color: var(--eel); }
   :focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; border-radius: 6px; }
   code, kbd, pre { font: 400 14px/1.5 ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace; }
-  pre {
-    margin: 0; padding: 14px 16px; background: var(--code-bg); border-radius: var(--radius-tile);
-    overflow-x: auto; color: var(--eel); border: 2px solid var(--swan);
-  }
+  pre { margin: 0; padding: 14px 16px; background: var(--code-bg); border-radius: var(--radius-tile); overflow-x: auto; color: var(--eel); border: 2px solid var(--swan); }
   code { background: var(--code-bg); padding: 1px 6px; border-radius: 6px; }
   pre code { background: none; padding: 0; }
+  p { margin: 0 0 12px; max-width: 65ch; }
+  h3 { font-size: 16px; font-weight: 700; margin: 0 0 8px; color: var(--ink); }
+  .muted { color: var(--wolf); }
+  .small { font-size: 14px; }
+  [hidden] { display: none !important; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 
   .wrap { max-width: 1040px; margin: 0 auto; padding: 20px 20px 64px; }
   @media (min-width: 760px) { .wrap { padding: 32px 32px 96px; } }
@@ -89,119 +73,112 @@
   h1.display { font-size: 38px; }
   h2.display { font-size: 30px; }
   @media (min-width: 760px) { h1.display { font-size: 48px; } h2.display { font-size: 34px; } }
-  .lede { font-size: 18px; max-width: 60ch; margin: 14px 0 0; color: var(--eel); }
-  .muted { color: var(--wolf); }
-  .small { font-size: 14px; }
-  p { margin: 0 0 12px; max-width: 65ch; }
-  h3 { font-size: 16px; font-weight: 700; margin: 0 0 8px; color: var(--ink); }
+  .lede { font-size: 18px; max-width: 60ch; margin: 14px 0 0; }
+  .sub { margin: 10px 0 20px; color: var(--wolf); max-width: 60ch; }
 
-  /* Header */
-  header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 40px; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 40px; flex-wrap: wrap; }
   .wordmark { display: inline-flex; align-items: center; gap: 10px; font-weight: 900; font-size: 22px; color: var(--ink); text-decoration: none; letter-spacing: -0.02em; }
   .wordmark svg { width: 28px; height: 28px; }
   .status { display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 999px; background: var(--polar); font-size: 14px; font-weight: 700; color: var(--eel); min-width: 0; }
-  .status .dot { flex: none; }
-  @media (max-width: 479px) { header { flex-wrap: wrap; } .stage { grid-template-columns: 1fr; } }
-  .grid2 > *, .stack > *, .stage > * { min-width: 0; }
-  .stage canvas { max-width: 100%; height: auto; }
-  .status .dot { width: 10px; height: 10px; border-radius: 999px; background: var(--hare); }
+  .status .dot { flex: none; width: 10px; height: 10px; border-radius: 999px; background: var(--hare); }
   .status.on .dot { background: var(--feather); }
-
   section { margin-top: 56px; }
-  .sub { margin: 10px 0 20px; color: var(--wolf); max-width: 60ch; }
 
   /* Buttons: physical. A reserved transparent lip, pressed into on :active. */
-  .btn {
-    position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-    height: 46px; padding: 0 18px; border: 0; border-bottom: 4px solid transparent; border-radius: var(--radius-tile);
-    background: none; color: #fff; font: 700 15px/1 Nunito, system-ui, sans-serif; letter-spacing: 0.04em; text-transform: uppercase;
-    cursor: pointer; user-select: none; -webkit-tap-highlight-color: transparent; text-decoration: none; white-space: nowrap;
-  }
+  .btn { position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 46px; padding: 0 18px; border: 0; border-bottom: 4px solid transparent; border-radius: var(--radius-tile); background: none; color: #fff; font: 700 15px/1 Nunito, system-ui, sans-serif; letter-spacing: 0.04em; text-transform: uppercase; cursor: pointer; user-select: none; -webkit-tap-highlight-color: transparent; text-decoration: none; white-space: nowrap; }
   .btn::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: var(--radius-tile); background: var(--forest); box-shadow: 0 4px 0 0 var(--forest-lip); transition: transform 100ms var(--ease-out), box-shadow 100ms var(--ease-out); }
-  .btn:active::before, .btn.is-pressed::before { transform: translateY(4px); box-shadow: 0 0 0 0 var(--forest-lip); }
-  .btn:active > * { transform: translateY(4px); }
+  .btn:active::before { transform: translateY(4px); box-shadow: 0 0 0 0 var(--forest-lip); }
   .btn > * { transition: transform 100ms var(--ease-out); }
+  .btn:active > * { transform: translateY(4px); }
   .btn.secondary { color: var(--eel); }
-  .btn.secondary::before { background: var(--snow); box-shadow: inset 0 0 0 2px var(--swan), 0 4px 0 0 var(--swan); }
-  .btn.secondary:active::before { box-shadow: inset 0 0 0 2px var(--swan), 0 0 0 0 var(--swan); }
+  .btn.secondary::before, .btn.danger::before { background: var(--snow); box-shadow: inset 0 0 0 2px var(--swan), 0 4px 0 0 var(--swan); }
+  .btn.secondary:active::before, .btn.danger:active::before { box-shadow: inset 0 0 0 2px var(--swan), 0 0 0 0 var(--swan); }
   .btn.danger { color: var(--cardinal-ink); }
-  .btn.danger::before { background: var(--snow); box-shadow: inset 0 0 0 2px var(--swan), 0 4px 0 0 var(--swan); }
   .btn.sm { height: 38px; padding: 0 14px; font-size: 13px; }
   .btn:disabled { cursor: not-allowed; color: var(--hare); }
   .btn:disabled::before { background: var(--polar); box-shadow: inset 0 0 0 2px var(--swan), 0 4px 0 0 var(--swan); }
-  @media (hover: hover) {
-    .btn:not(:disabled):hover::before { filter: brightness(1.06); }
-  }
+  @media (hover: hover) { .btn:not(:disabled):hover::before { filter: brightness(1.06); } }
   .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 
   /* Cards and pickable tiles: same construction, 2px. */
   .card { background: var(--snow); border: 2px solid var(--swan); border-bottom-width: 4px; border-radius: var(--radius-card); padding: 18px; }
-  .tile {
-    display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; cursor: pointer;
-    background: var(--snow); color: var(--eel); border: 2px solid var(--swan); border-bottom-width: 4px; border-radius: var(--radius-tile);
-    padding: 12px 14px; font: inherit; transition: background-color 120ms, border-color 120ms; -webkit-tap-highlight-color: transparent;
-  }
+  .tile { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; cursor: pointer; background: var(--snow); color: var(--eel); border: 2px solid var(--swan); border-bottom-width: 4px; border-radius: var(--radius-tile); padding: 12px 14px; font: inherit; transition: background-color 120ms, border-color 120ms; -webkit-tap-highlight-color: transparent; }
   .tile:active { border-bottom-width: 2px; margin-top: 2px; }
   @media (hover: hover) { .tile:not(:disabled):hover { background: var(--polar); } }
   .tile[aria-pressed="true"], .tile.selected { border-color: var(--macaw); background: var(--macaw-tint); color: var(--macaw-ink); }
   .tile:disabled { cursor: not-allowed; color: var(--hare); background: var(--polar); }
-  .tile img, .tile .ph { width: 40px; height: 40px; border-radius: 10px; flex: none; background: var(--polar); }
-  .tile .t { display: flex; flex-direction: column; min-width: 0; }
+  .tile img, .tile .ph { width: 44px; height: 44px; border-radius: 11px; flex: none; background: var(--polar); }
+  .tile .t { display: flex; flex-direction: column; min-width: 0; flex: 1; }
   .tile .t b { font-weight: 700; }
   .tile .t span { font-size: 13px; color: var(--wolf); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .tile.selected .t span { color: inherit; opacity: 0.8; }
-  .tiles { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+  .tile .dupes { display: flex; gap: 4px; flex: none; }
+  .tile .dupes img { width: 22px; height: 22px; border-radius: 6px; }
+  .tiles { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
 
-  /* Segmented pick */
-  .seg { display: inline-flex; flex-wrap: wrap; gap: 8px; }
-  .seg .tile { width: auto; padding: 9px 14px; font-size: 14px; font-weight: 700; gap: 0; }
+  /* Icon strip: the colour picker is the icon itself. */
+  .strip { display: flex; flex-wrap: wrap; gap: 6px; }
+  .mini { width: 56px; height: 62px; padding: 0; border: 0; background: none; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 4px; -webkit-tap-highlight-color: transparent; }
+  .mini img { width: 44px; height: 44px; border-radius: 11px; background: var(--polar); transition: transform 100ms var(--ease-out); }
+  .mini small { font-size: 11px; font-weight: 700; color: var(--wolf); text-transform: lowercase; }
+  .mini[aria-checked="true"] img { box-shadow: 0 0 0 3px var(--snow), 0 0 0 5px var(--ink); }
+  .mini:active img { transform: scale(0.94); }
+  .mini.orig { cursor: default; }
+  .preview-big { display: flex; align-items: center; gap: 18px; padding: 16px; border-radius: var(--radius-card); background: var(--polar); }
+  .preview-big img { width: 96px; height: 96px; border-radius: 22px; flex: none; background: var(--swan); }
+  .preview-big .t b { display: block; font-size: 18px; color: var(--ink); }
+  .preview-big .t span { color: var(--wolf); font-size: 14px; }
 
-  /* Swatches */
+  /* Swatches (icon studio) */
   .swatches { display: flex; flex-wrap: wrap; gap: 6px; }
   .swatch { width: 44px; height: 44px; padding: 0; border: 0; background: none; cursor: pointer; display: grid; place-items: center; border-radius: 999px; -webkit-tap-highlight-color: transparent; }
   .swatch i { display: block; width: 30px; height: 30px; border-radius: 999px; background: var(--c); box-shadow: inset 0 -3px 0 rgba(0,0,0,0.18); transition: transform 100ms var(--ease-out); }
   .swatch[aria-checked="true"] i { box-shadow: inset 0 -3px 0 rgba(0,0,0,0.18), 0 0 0 3px var(--snow), 0 0 0 5px var(--ink); }
   .swatch:active i { transform: scale(0.94); }
 
-  /* Inputs */
   label.field { display: flex; flex-direction: column; gap: 6px; font-size: 14px; font-weight: 700; color: var(--eel); }
-  .input {
-    height: 46px; padding: 0 14px; border-radius: var(--radius-tile); border: 2px solid var(--swan); background: var(--snow); color: var(--eel);
-    font: 400 16px Nunito, system-ui, sans-serif; width: 100%; transition: border-color 100ms;
-  }
+  .input { height: 46px; padding: 0 14px; border-radius: var(--radius-tile); border: 2px solid var(--swan); background: var(--snow); color: var(--eel); font: 400 16px Nunito, system-ui, sans-serif; width: 100%; transition: border-color 100ms; }
   .input:hover { border-color: var(--hare); }
   .input:focus { border-color: var(--macaw); outline: none; }
   .input.mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 15px; }
   .grid2 { display: grid; gap: 20px; }
   @media (min-width: 760px) { .grid2 { grid-template-columns: 1fr 1fr; } }
+  .grid2 > *, .stack > *, .stage > * { min-width: 0; }
   .stack { display: flex; flex-direction: column; gap: 18px; }
 
-  /* Dropzone */
   .drop { border: 2px dashed var(--hare); border-radius: var(--radius-card); padding: 22px 18px; text-align: center; background: var(--polar); transition: border-color 120ms, background-color 120ms; }
   .drop.over { border-color: var(--macaw); background: var(--macaw-tint); }
   .drop input { position: absolute; width: 1px; height: 1px; opacity: 0; }
-
-  /* Preview */
+  .seg { display: inline-flex; flex-wrap: wrap; gap: 8px; }
+  .seg .tile { width: auto; padding: 9px 14px; font-size: 14px; font-weight: 700; gap: 0; }
   .preview { display: flex; flex-direction: column; gap: 14px; align-items: center; }
   .stage { display: grid; grid-template-columns: 1fr 1fr; width: 100%; border-radius: var(--radius-card); overflow: hidden; border: 2px solid var(--swan); }
   .stage > div { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 20px 12px; min-height: 220px; }
-  .stage .light { background: #f2f2f2; }
-  .stage .dark { background: #1a2126; }
-  .stage canvas { image-rendering: auto; display: block; }
+  .stage .light { background: var(--stage-light); }
+  .stage .dark { background: var(--stage-dark); }
+  .stage canvas { display: block; max-width: 100%; height: auto; }
   .sizes { display: flex; align-items: flex-end; gap: 14px; }
   .caption { font-size: 14px; color: var(--wolf); text-align: center; min-height: 20px; }
+  @media (max-width: 479px) { .stage { grid-template-columns: 1fr; } }
 
-  /* Profiles list */
+  details { border: 2px solid var(--swan); border-bottom-width: 4px; border-radius: var(--radius-card); padding: 0 18px; }
+  details > summary { list-style: none; cursor: pointer; padding: 16px 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; font-weight: 700; color: var(--ink); }
+  details > summary::-webkit-details-marker { display: none; }
+  details > summary::after { content: "Show"; font-size: 13px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--macaw-ink); }
+  details[open] > summary::after { content: "Hide"; }
+  details > .body { padding: 4px 0 20px; }
+
   .plist { display: flex; flex-direction: column; gap: 10px; }
   .prow { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 12px 14px; border: 2px solid var(--swan); border-bottom-width: 4px; border-radius: var(--radius-tile); background: var(--snow); }
-  .prow img { width: 44px; height: 44px; border-radius: 11px; background: var(--polar); flex: none; }
+  .prow > img { width: 44px; height: 44px; border-radius: 11px; background: var(--polar); flex: none; }
   .prow .t { flex: 1 1 160px; min-width: 0; }
   .prow .t b { display: block; }
   .prow .t span { font-size: 13px; color: var(--wolf); display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .prow .dotc { width: 12px; height: 12px; border-radius: 999px; display: inline-block; vertical-align: -1px; margin-right: 6px; box-shadow: inset 0 -2px 0 rgba(0,0,0,0.18); }
+  .dotc { width: 12px; height: 12px; border-radius: 999px; display: inline-block; vertical-align: -1px; margin-right: 6px; box-shadow: inset 0 -2px 0 rgba(0,0,0,0.18); }
+  .prow .edit { flex-basis: 100%; display: flex; flex-direction: column; gap: 14px; padding-top: 10px; border-top: 2px solid var(--swan); margin-top: 4px; }
   .prow.new { animation: arrive 220ms var(--ease-out); }
   @keyframes arrive { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: none; } }
-  @media (prefers-reduced-motion: reduce) { .prow.new { animation: fade 160ms; } @keyframes fade { from { opacity: 0; } to { opacity: 1; } } .btn::before, .btn > *, .swatch i { transition: none; } }
+  @media (prefers-reduced-motion: reduce) { .prow.new { animation: fade 160ms; } @keyframes fade { from { opacity: 0; } to { opacity: 1; } } .btn::before, .btn > *, .swatch i, .mini img { transition: none; } }
 
   .notice { padding: 12px 14px; border-radius: var(--radius-tile); background: var(--polar); font-size: 15px; }
   .notice.ok { background: #e6f6da; color: #2a5a00; }
@@ -216,8 +193,6 @@
   .cmd { display: flex; align-items: center; gap: 10px; }
   .cmd pre { flex: 1; padding: 10px 14px; }
   footer { margin-top: 72px; padding-top: 20px; border-top: 2px solid var(--swan); font-size: 14px; color: var(--wolf); display: flex; flex-wrap: wrap; gap: 8px 20px; }
-  [hidden] { display: none !important; }
-  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 </style>
 </head>
 <body>
@@ -234,70 +209,16 @@
   <p class="lede">Run Claude, ChatGPT, Grok Bot or any Electron app as separate, colour-coded copies. Each one keeps its own login, its own data and its own icon on the Dock or taskbar. Works on macOS, Windows and Linux.</p>
   <p class="small muted" style="margin-top:10px">Grown from <a href="https://gist.github.com/wustep/691823b666bd9c3c340c516279526a17">Stephen Wu's macOS script</a>, which clones the AI desktop apps into blue "Work" copies. Blue still means work.</p>
 
-  <!-- Icon studio: runs entirely in this page, on any device. -->
-  <section id="studio" aria-labelledby="studio-h">
-    <h2 class="display" id="studio-h">recolour an icon</h2>
-    <p class="sub">Drop any app icon and pick a colour. The page keeps the icon's lightness and detail and moves only its hue, or, for a grayscale mark, remaps its field to the colour and the mark to white. Nothing is uploaded.</p>
-    <div class="grid2">
-      <div class="stack">
-        <div class="drop" id="drop">
-          <label>
-            <b>Drop an icon here</b><br><span class="small muted">PNG, SVG, JPG, ICO or ICNS. For a .exe, use the command line.</span><br>
-            <span class="btn secondary sm" style="margin-top:12px" role="button" tabindex="0" id="choose-btn"><span>Choose file</span></span>
-            <input type="file" id="file" accept=".png,.svg,.jpg,.jpeg,.webp,.ico,.icns,image/*">
-          </label>
-        </div>
-        <div>
-          <h3>Or try a sample</h3>
-          <div class="seg" id="samples">
-            <button class="tile" type="button" data-sample="tile"><span>Colourful tile</span></button>
-            <button class="tile" type="button" data-sample="knot"><span>Dark mark, light field</span></button>
-            <button class="tile" type="button" data-sample="ghost"><span>Light mark, dark field</span></button>
-          </div>
-        </div>
-        <div>
-          <h3 id="color-h">Colour</h3>
-          <div class="swatches" role="radiogroup" aria-labelledby="color-h" id="swatches"></div>
-          <label class="field" style="margin-top:10px; max-width: 220px">Custom hex
-            <input class="input mono" id="hex" value="#1b91e3" spellcheck="false" autocomplete="off" inputmode="text" aria-describedby="hex-help">
-          </label>
-          <span class="sr" id="hex-help">6 hex digits, with or without the hash</span>
-        </div>
-        <div>
-          <h3 id="treat-h">Treatment</h3>
-          <div class="seg" role="radiogroup" aria-labelledby="treat-h" id="treatment">
-            <button class="tile" type="button" role="radio" aria-checked="true" data-t="auto"><span>Auto</span></button>
-            <button class="tile" type="button" role="radio" aria-checked="false" data-t="hue"><span>Hue rotation</span></button>
-            <button class="tile" type="button" role="radio" aria-checked="false" data-t="ramp-light"><span>Ramp, light field</span></button>
-            <button class="tile" type="button" role="radio" aria-checked="false" data-t="ramp-dark"><span>Ramp, dark field</span></button>
-          </div>
-        </div>
-      </div>
-      <div class="preview">
-        <div class="stage" aria-label="Icon preview on light and dark backgrounds">
-          <div class="light"><canvas id="pv-l" width="160" height="160"></canvas><div class="sizes"><canvas id="pv-l64" width="64" height="64"></canvas><canvas id="pv-l32" width="32" height="32"></canvas><canvas id="pv-l16" width="16" height="16"></canvas></div></div>
-          <div class="dark"><canvas id="pv-d" width="160" height="160"></canvas><div class="sizes"><canvas id="pv-d64" width="64" height="64"></canvas><canvas id="pv-d32" width="32" height="32"></canvas><canvas id="pv-d16" width="16" height="16"></canvas></div></div>
-        </div>
-        <div class="caption" id="caption">Pick a sample or drop an icon to start.</div>
-        <div class="row" id="downloads">
-          <button class="btn" type="button" id="dl-png" disabled><span>Download PNG</span></button>
-          <button class="btn secondary" type="button" id="dl-ico" disabled><span>Download ICO</span></button>
-          <button class="btn secondary" type="button" id="dl-icns" disabled><span>Download ICNS</span></button>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- Profiles: live when served by `dupe ui`, instructions otherwise. -->
-  <section id="profiles" aria-labelledby="profiles-h">
-    <h2 class="display" id="profiles-h">build profiles</h2>
-    <p class="sub" id="profiles-sub">Pick an app, name the profile, choose its colour. The launcher, the recoloured icon and the Start Menu or Dock entry are built for you.</p>
+  <!-- Primary flow: dupe an app → name your profile → see it in colour → build. -->
+  <section id="dupe" aria-labelledby="dupe-h">
+    <h2 class="display" id="dupe-h">dupe an app</h2>
+    <p class="sub" id="dupe-sub">Pick an app. Name the profile. Choose a colour and see its icon before you build.</p>
 
     <div id="hosted" hidden>
       <div class="card stack">
         <div>
           <h3>This page can't reach your computer</h3>
-          <p>Building a profile means compiling a launcher and writing files next to the app, so it runs from your own machine. Install the tool, then open this same interface connected to it:</p>
+          <p>Building a profile means compiling a launcher and writing files next to the app, so it runs on your own machine. Install the tool, then open this same interface connected to it:</p>
         </div>
         <div class="cmds">
           <div class="cmd"><pre><code>npm install -g dupe</code></pre><button class="btn secondary sm copy" type="button" data-copy="npm install -g dupe"><span>Copy</span></button></div>
@@ -307,44 +228,111 @@
           <h3>Or skip the interface</h3>
           <div class="cmds">
             <div class="cmd"><pre><code>dupe add claude work</code></pre><button class="btn secondary sm copy" type="button" data-copy="dupe add claude work"><span>Copy</span></button></div>
-            <div class="cmd"><pre><code>dupe add chatgpt work</code></pre><button class="btn secondary sm copy" type="button" data-copy="dupe add chatgpt work"><span>Copy</span></button></div>
             <div class="cmd"><pre><code>dupe add claude client-a --color green</code></pre><button class="btn secondary sm copy" type="button" data-copy="dupe add claude client-a --color green"><span>Copy</span></button></div>
             <div class="cmd"><pre><code>dupe add /Applications/Slack.app personal</code></pre><button class="btn secondary sm copy" type="button" data-copy="dupe add /Applications/Slack.app personal"><span>Copy</span></button></div>
           </div>
-          <p class="small muted" style="margin-top:12px">Presets: claude, chatgpt, grok-bot, slack, discord, notion, obsidian, vscode, cursor, chrome, edge, brave. Any other app works by path. Needs Node 20 or newer.</p>
+          <p class="small muted" style="margin-top:12px">Presets: claude, chatgpt, grok-bot, slack, discord, notion, obsidian, vscode, cursor, chrome, edge, brave. Any other app works by path. Needs Node 20 or newer. Or let your agent do it: the repo is an Agent Plugin with skills and an MCP server.</p>
         </div>
       </div>
     </div>
 
     <div id="live" hidden class="stack">
       <div>
-        <h3>1. App</h3>
+        <h3>1. Your apps</h3>
         <div class="tiles" id="apps"></div>
+        <p class="small muted" id="missing" style="margin:10px 0 0"></p>
       </div>
+
       <div class="card stack" id="builder" hidden>
         <div class="grid2">
-          <label class="field">Profile name
-            <input class="input" id="pname" placeholder="work" autocomplete="off" spellcheck="false">
-          </label>
-          <label class="field">Shown as
-            <input class="input" id="plabel" placeholder="Claude Work" autocomplete="off">
-          </label>
+          <div class="stack">
+            <label class="field" id="cpath-field" hidden>Path to the app
+              <input class="input mono" id="cpath" placeholder="/Applications/Slack.app  ·  C:\…\Foo.exe  ·  foo.desktop" autocomplete="off" spellcheck="false">
+            </label>
+            <label class="field">2. Name the profile
+              <input class="input" id="pname" placeholder="work" autocomplete="off" spellcheck="false">
+            </label>
+            <label class="field">Shown as
+              <input class="input" id="plabel" placeholder="Claude Work" autocomplete="off">
+            </label>
+            <div>
+              <h3 id="pcolor-h">3. Colour</h3>
+              <div class="strip" role="radiogroup" aria-labelledby="pcolor-h" id="pstrip"></div>
+            </div>
+          </div>
+          <div class="stack">
+            <div class="preview-big" id="pbig"><img alt="" id="pbig-img"><div class="t"><b id="pbig-label">Claude Work</b><span id="pbig-meta">blue · #1b91e3</span></div></div>
+            <p class="small muted" id="build-note" style="margin:0"></p>
+            <div class="row">
+              <button class="btn" type="button" id="build"><span>Build profile</span></button>
+            </div>
+            <div id="build-out" hidden></div>
+          </div>
         </div>
-        <div>
-          <h3 id="pcolor-h">Colour</h3>
-          <div class="swatches" role="radiogroup" aria-labelledby="pcolor-h" id="pswatches"></div>
-        </div>
-        <div class="row">
-          <button class="btn" type="button" id="build"><span>Build profile</span></button>
-          <span class="small muted" id="build-note"></span>
-        </div>
-        <div id="build-out" hidden></div>
       </div>
+
       <div>
-        <h3>2. Your profiles</h3>
+        <h3>Your profiles</h3>
         <div class="plist" id="plist"></div>
       </div>
     </div>
+  </section>
+
+  <!-- Secondary: recolour any icon file, entirely in the browser. -->
+  <section id="studio" aria-labelledby="studio-h">
+    <h2 class="display" id="studio-h">recolour any icon</h2>
+    <p class="sub">For apps the tool can't automate: phone launchers, Shortcuts, custom builds. Drop an icon, pick a colour, download it. Nothing is uploaded.</p>
+    <details id="studio-details">
+      <summary>Icon studio</summary>
+      <div class="body grid2">
+        <div class="stack">
+          <div class="drop" id="drop">
+            <label>
+              <b>Drop an icon here</b><br><span class="small muted">PNG, SVG, JPG, ICO or ICNS. For a .exe, use the command line.</span><br>
+              <span class="btn secondary sm" style="margin-top:12px" role="button" tabindex="0" id="choose-btn"><span>Choose file</span></span>
+              <input type="file" id="file" accept=".png,.svg,.jpg,.jpeg,.webp,.ico,.icns,image/*">
+            </label>
+          </div>
+          <div>
+            <h3>Or try a sample</h3>
+            <div class="seg" id="samples">
+              <button class="tile" type="button" data-sample="tile"><span>Colourful tile</span></button>
+              <button class="tile" type="button" data-sample="knot"><span>Dark mark, light field</span></button>
+              <button class="tile" type="button" data-sample="ghost"><span>Light mark, dark field</span></button>
+            </div>
+          </div>
+          <div>
+            <h3 id="color-h">Colour</h3>
+            <div class="swatches" role="radiogroup" aria-labelledby="color-h" id="swatches"></div>
+            <label class="field" style="margin-top:10px; max-width: 220px">Custom hex
+              <input class="input mono" id="hex" value="#1b91e3" spellcheck="false" autocomplete="off" aria-describedby="hex-help">
+            </label>
+            <span class="sr" id="hex-help">6 hex digits, with or without the hash</span>
+          </div>
+          <div>
+            <h3 id="treat-h">Treatment</h3>
+            <div class="seg" role="radiogroup" aria-labelledby="treat-h" id="treatment">
+              <button class="tile" type="button" role="radio" aria-checked="true" data-t="auto"><span>Auto</span></button>
+              <button class="tile" type="button" role="radio" aria-checked="false" data-t="hue"><span>Hue rotation</span></button>
+              <button class="tile" type="button" role="radio" aria-checked="false" data-t="ramp-light"><span>Ramp, light field</span></button>
+              <button class="tile" type="button" role="radio" aria-checked="false" data-t="ramp-dark"><span>Ramp, dark field</span></button>
+            </div>
+          </div>
+        </div>
+        <div class="preview">
+          <div class="stage" aria-label="Icon preview on light and dark backgrounds">
+            <div class="light"><canvas id="pv-l" width="160" height="160"></canvas><div class="sizes"><canvas id="pv-l64" width="64" height="64"></canvas><canvas id="pv-l32" width="32" height="32"></canvas><canvas id="pv-l16" width="16" height="16"></canvas></div></div>
+            <div class="dark"><canvas id="pv-d" width="160" height="160"></canvas><div class="sizes"><canvas id="pv-d64" width="64" height="64"></canvas><canvas id="pv-d32" width="32" height="32"></canvas><canvas id="pv-d16" width="16" height="16"></canvas></div></div>
+          </div>
+          <div class="caption" id="caption">Pick a sample or drop an icon to start.</div>
+          <div class="row" id="downloads">
+            <button class="btn" type="button" id="dl-png" disabled><span>Download PNG</span></button>
+            <button class="btn secondary" type="button" id="dl-ico" disabled><span>Download ICO</span></button>
+            <button class="btn secondary" type="button" id="dl-icns" disabled><span>Download ICNS</span></button>
+          </div>
+        </div>
+      </div>
+    </details>
   </section>
 
   <section id="phones" aria-labelledby="phones-h">
@@ -372,26 +360,217 @@
 </div>
 
 <script type="module">
-import { Buffer, analyze, chooseTreatment, recolor, resize, encodePng, writeIco, writeIcns, readIco, readIcns, decodeDib, isPng, NAMED, ORDER, hexToOklch } from './dupe-image.js';
+import { Buffer, analyze, chooseTreatment, recolor, resize, encodePng, writeIco, writeIcns, readIco, readIcns, decodeDib, isPng, NAMED, ORDER } from './dupe-image.js';
 
 const $ = (s) => document.querySelector(s);
 const ICO_SIZES = [16, 20, 24, 32, 40, 48, 64, 128, 256];
 const ICNS_SIZES = [16, 32, 64, 128, 256, 512, 1024];
+const titleCase = (s) => s.split(/[\s_-]+/).filter(Boolean).map((w) => w[0].toUpperCase() + w.slice(1)).join(' ');
+const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+const colorName = (hex) => (ORDER.find((n) => NAMED[n] === hex) || hex);
+const iconUrl = (source, hex) => `/api/icon?source=${encodeURIComponent(source)}${hex ? `&color=${encodeURIComponent(hex)}` : ''}`;
 
-// ---------- state
-let source = null;          // {width,height,data}
-let sourceName = 'icon';
-let color = NAMED.blue;
-let treatment = 'auto';
-let master = null;
-let lastStats = null;
+/* ================= live mode: dupe an app ================= */
+let live = null;
+let pickedApp = null;   // preset id, or '__custom'
+let pcolor = null;
 
-// ---------- swatches
+async function api(path, body) {
+  const r = await fetch(path, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : undefined);
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || `${r.status}`);
+  return j;
+}
+const profilesOf = (id) => live.profiles.filter((p) => p.app === id);
+function nextColor(id) {
+  const used = new Set(profilesOf(id).map((p) => p.color));
+  return (live.colors.find((c) => !used.has(c.hex)) || live.colors[0]).hex;
+}
+const sourceOf = (rec) => (rec.custom ? rec.source : rec.app);
+
+// One strip = original + every palette colour, rendered with the app's own icon.
+function strip(el, source, current, onPick, { original = true } = {}) {
+  el.innerHTML = '';
+  if (original) {
+    const o = document.createElement('div'); o.className = 'mini orig';
+    o.innerHTML = `<img alt="" src="${iconUrl(source)}"><small>original</small>`;
+    el.appendChild(o);
+  }
+  for (const c of live.colors) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'mini'; b.setAttribute('role', 'radio'); b.dataset.hex = c.hex;
+    b.setAttribute('aria-label', c.name); b.setAttribute('aria-checked', String(c.hex === current));
+    b.innerHTML = `<img alt="" src="${iconUrl(source, c.hex)}"><small>${c.name}</small>`;
+    b.addEventListener('click', () => { for (const x of el.querySelectorAll('[role=radio]')) x.setAttribute('aria-checked', String(x === b)); onPick(c.hex); });
+    el.appendChild(b);
+  }
+}
+
+function renderApps() {
+  const el = $('#apps'); el.innerHTML = '';
+  const installed = live.apps.filter((a) => a.found);
+  for (const app of installed) {
+    const dupes = profilesOf(app.id);
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'tile'; b.dataset.id = app.id;
+    b.setAttribute('aria-pressed', String(pickedApp === app.id));
+    b.innerHTML = `<img alt="" src="${iconUrl(app.id)}"><span class="t"><b>${app.name}</b><span>${dupes.length ? `${dupes.length} profile${dupes.length === 1 ? '' : 's'}` : 'no profiles yet'}</span></span>` +
+      `<span class="dupes">${dupes.map((p) => `<img alt="${p.label}" title="${p.label}" src="/api/profile-icon/${encodeURIComponent(p.app)}/${encodeURIComponent(p.profile)}?v=${encodeURIComponent(p.builtAt || '')}">`).join('')}</span>`;
+    b.addEventListener('click', () => pickApp(app.id));
+    el.appendChild(b);
+  }
+  const c = document.createElement('button');
+  c.type = 'button'; c.className = 'tile'; c.dataset.id = '__custom';
+  c.setAttribute('aria-pressed', String(pickedApp === '__custom'));
+  c.innerHTML = '<span class="ph" aria-hidden="true" style="display:grid;place-items:center;font-weight:900;font-size:24px">+</span><span class="t"><b>Another app</b><span>by path</span></span>';
+  c.addEventListener('click', () => pickApp('__custom'));
+  el.appendChild(c);
+  const missing = live.apps.filter((a) => !a.found).map((a) => a.name);
+  $('#missing').textContent = missing.length ? `Not installed here: ${missing.join(', ')}.` : '';
+}
+
+function currentApp() {
+  if (pickedApp !== '__custom') return live.apps.find((a) => a.id === pickedApp);
+  const p = $('#cpath').value.trim();
+  const name = p.split(/[\\/]/).filter(Boolean).pop()?.replace(/\.(app|exe|desktop|AppImage)$/i, '') || 'App';
+  return { id: '__custom', name, path: p, verified: true };
+}
+const currentSource = () => (pickedApp === '__custom' ? $('#cpath').value.trim() : pickedApp);
+
+function pickApp(id) {
+  pickedApp = id;
+  for (const b of $('#apps').children) b.setAttribute('aria-pressed', String(b.dataset.id === id));
+  $('#cpath-field').hidden = id !== '__custom';
+  $('#builder').hidden = false;
+  $('#build-out').hidden = true;
+  const app = currentApp();
+  $('#pname').value = ''; $('#pname').placeholder = profilesOf(id).some((p) => p.profile === 'work') ? 'client-a' : 'work';
+  $('#plabel').value = '';
+  pcolor = id === '__custom' ? live.colors[0].hex : nextColor(id);
+  $('#build-note').textContent = app.verified ? '' : "This preset relies on the Electron flag and hasn't been tested app by app.";
+  refreshBuilder();
+  (id === '__custom' ? $('#cpath') : $('#pname')).focus({ preventScroll: true });
+}
+function refreshBuilder() {
+  const app = currentApp();
+  const name = slug($('#pname').value) || $('#pname').placeholder;
+  const label = `${app.name} ${titleCase(name)}`;
+  $('#plabel').placeholder = label;
+  $('#pbig-label').textContent = $('#plabel').value.trim() || label;
+  $('#pbig-meta').textContent = `${colorName(pcolor)} · ${pcolor}`;
+  const source = currentSource();
+  if (source) {
+    $('#pbig-img').src = iconUrl(source, pcolor);
+    if ($('#pstrip').dataset.source !== source) { $('#pstrip').dataset.source = source; strip($('#pstrip'), source, pcolor, (hex) => { pcolor = hex; refreshBuilder(); }); }
+  } else {
+    $('#pbig-img').removeAttribute('src'); $('#pstrip').innerHTML = ''; $('#pstrip').dataset.source = '';
+  }
+}
+$('#pname').addEventListener('input', refreshBuilder);
+$('#plabel').addEventListener('input', refreshBuilder);
+let cpathTimer;
+$('#cpath').addEventListener('input', () => { clearTimeout(cpathTimer); cpathTimer = setTimeout(refreshBuilder, 350); });
+
+$('#build').addEventListener('click', async () => {
+  const app = currentApp();
+  const profile = slug($('#pname').value) || $('#pname').placeholder;
+  const label = $('#plabel').value.trim() || $('#plabel').placeholder;
+  const out = $('#build-out'); out.hidden = true;
+  if (pickedApp === '__custom' && !app.path) { out.className = 'notice err'; out.textContent = "Couldn't build. Enter the path to the app first."; out.hidden = false; $('#cpath').focus(); return; }
+  const btn = $('#build'); btn.disabled = true; btn.querySelector('span').textContent = 'Building…';
+  try {
+    const r = await api('/api/add', { app: pickedApp === '__custom' ? app.path : app.id, profile, label, color: pcolor, treatment: 'auto' });
+    live.profiles = live.profiles.filter((p) => !(p.app === r.record.app && p.profile === r.record.profile)).concat([r.record]);
+    out.className = 'notice ok'; out.textContent = `Built ${r.record.label}! ${r.hint}`; out.hidden = false;
+    renderApps(); renderProfiles(r.record);
+    if (pickedApp !== '__custom') { $('#pname').value = ''; $('#pname').placeholder = profilesOf(pickedApp).some((p) => p.profile === 'work') ? 'client-a' : 'work'; pcolor = nextColor(pickedApp); $('#pstrip').dataset.source = ''; refreshBuilder(); }
+  } catch (e) {
+    out.className = 'notice err'; out.textContent = `Couldn't build. ${e.message}`; out.hidden = false;
+  } finally {
+    btn.disabled = false; btn.querySelector('span').textContent = 'Build profile';
+  }
+});
+
+function renderProfiles(fresh) {
+  const el = $('#plist'); el.innerHTML = '';
+  if (!live.profiles.length) {
+    el.innerHTML = '<div class="empty"><b>No profiles yet</b>Pick an app above and build the first one.</div>';
+    return;
+  }
+  for (const p of live.profiles) {
+    const row = document.createElement('div');
+    row.className = 'prow' + (fresh && fresh.app === p.app && fresh.profile === p.profile ? ' new' : '');
+    const target = p.launcher || p.bundle || p.desktop || '';
+    row.innerHTML = `<img alt="" src="/api/profile-icon/${encodeURIComponent(p.app)}/${encodeURIComponent(p.profile)}?v=${encodeURIComponent(p.builtAt || '')}">
+      <div class="t"><b><i class="dotc" style="background:${p.color}"></i>${p.label}</b><span title="${target}">${p.appName} · ${p.profile} · ${colorName(p.color)}</span></div>
+      <div class="row"><button class="btn secondary sm" type="button" data-act="open"><span>Open</span></button><button class="btn secondary sm" type="button" data-act="edit"><span>Customise</span></button><button class="btn danger sm" type="button" data-act="remove"><span>Remove</span></button></div>
+      <div class="edit" data-edit hidden>
+        <label class="field">Shown as <input class="input" data-label value="${p.label.replace(/"/g, '&quot;')}"></label>
+        <div><h3>Colour</h3><div class="strip" data-strip></div></div>
+        <div class="row"><button class="btn sm" type="button" data-act="save"><span>Save changes</span></button><button class="btn secondary sm" type="button" data-act="cancel-edit"><span>Cancel</span></button><span class="small muted" data-status></span></div>
+      </div>
+      <div class="row" data-confirm hidden style="flex-basis:100%"><span class="small muted">Remove the launcher. Its data can stay for later.</span><button class="btn secondary sm" type="button" data-act="keep"><span>Keep data</span></button><button class="btn danger sm" type="button" data-act="purge"><span>Delete data</span></button><button class="btn secondary sm" type="button" data-act="cancel"><span>Cancel</span></button></div>`;
+    let editColor = p.color;
+    row.addEventListener('click', async (e) => {
+      const b = e.target.closest('[data-act]'); if (!b) return;
+      const act = b.dataset.act;
+      const confirm = row.querySelector('[data-confirm]'), edit = row.querySelector('[data-edit]'), status = row.querySelector('[data-status]');
+      if (act === 'open') { b.disabled = true; try { await api('/api/open', { app: sourceOf(p), profile: p.profile }); } catch (err) { alert(`Couldn't open. ${err.message}`); } b.disabled = false; return; }
+      if (act === 'edit') { edit.hidden = !edit.hidden; confirm.hidden = true; if (!edit.hidden && !edit.dataset.ready) { edit.dataset.ready = '1'; strip(row.querySelector('[data-strip]'), sourceOf(p), editColor, (hex) => { editColor = hex; }, { original: false }); } return; }
+      if (act === 'cancel-edit') { edit.hidden = true; return; }
+      if (act === 'save') {
+        const label = row.querySelector('[data-label]').value.trim() || p.label;
+        for (const x of row.querySelectorAll('button')) x.disabled = true; status.textContent = 'Rebuilding…';
+        try {
+          const r = await api('/api/add', { app: sourceOf(p), profile: p.profile, label, color: editColor, treatment: 'auto' });
+          live.profiles = live.profiles.map((x) => (x.app === r.record.app && x.profile === r.record.profile ? r.record : x));
+          renderApps(); renderProfiles(r.record);
+        } catch (err) { status.textContent = `Couldn't save. ${err.message}`; for (const x of row.querySelectorAll('button')) x.disabled = false; }
+        return;
+      }
+      if (act === 'remove') { confirm.hidden = false; edit.hidden = true; return; }
+      if (act === 'cancel') { confirm.hidden = true; return; }
+      const purge = act === 'purge';
+      for (const x of row.querySelectorAll('button')) x.disabled = true;
+      try {
+        await api('/api/remove', { app: sourceOf(p), profile: p.profile, purge });
+        live.profiles = live.profiles.filter((x) => !(x.app === p.app && x.profile === p.profile));
+        renderApps(); renderProfiles();
+      } catch (err) { alert(`Couldn't remove. ${err.message}`); for (const x of row.querySelectorAll('button')) x.disabled = false; }
+    });
+    el.appendChild(row);
+  }
+}
+
+async function connect() {
+  const status = $('#status'), text = $('#status-text');
+  try {
+    const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 2500);
+    const r = await fetch('/api/state', { signal: ctrl.signal }); clearTimeout(t);
+    if (!r.ok) throw new Error();
+    live = await r.json();
+    status.classList.add('on');
+    const os = { win32: 'Windows', darwin: 'macOS', linux: 'Linux' }[live.platform] || live.platform;
+    text.textContent = `Connected · ${os}`;
+    $('#live').hidden = false;
+    renderApps(); renderProfiles();
+  } catch {
+    text.textContent = 'Browser only';
+    $('#hosted').hidden = false;
+    $('#dupe-sub').textContent = 'On a computer with the tool installed, this section shows your apps and builds profiles with a click.';
+    $('#studio-details').open = true;
+  }
+}
+connect();
+
+/* ================= icon studio (browser-only pipeline) ================= */
+let source = null, sourceName = 'icon', color = NAMED.blue, treatment = 'auto', master = null, lastStats = null;
+
 function swatches(el, onPick, getCurrent) {
   el.innerHTML = '';
   for (const name of ORDER) {
     const b = document.createElement('button');
-    b.type = 'button'; b.className = 'swatch'; b.role = 'radio'; b.title = `${name} ${NAMED[name]}`;
+    b.type = 'button'; b.className = 'swatch'; b.setAttribute('role', 'radio'); b.title = `${name} ${NAMED[name]}`;
     b.setAttribute('aria-label', name); b.dataset.hex = NAMED[name];
     b.innerHTML = `<i style="--c:${NAMED[name]}"></i>`;
     b.addEventListener('click', () => onPick(NAMED[name]));
@@ -407,8 +586,6 @@ $('#hex').addEventListener('input', (e) => {
   if (/^#?[0-9a-f]{6}$/i.test(v)) { color = (v.startsWith('#') ? v : '#' + v).toLowerCase(); syncStudioSwatches(); render(); e.target.setCustomValidity(''); }
   else e.target.setCustomValidity('6 hex digits');
 });
-
-// ---------- treatment
 $('#treatment').addEventListener('click', (e) => {
   const b = e.target.closest('[data-t]'); if (!b) return;
   treatment = b.dataset.t;
@@ -416,10 +593,8 @@ $('#treatment').addEventListener('click', (e) => {
   render();
 });
 
-// ---------- loading icons
 function imageFromCanvas(c) {
-  const ctx = c.getContext('2d');
-  const d = ctx.getImageData(0, 0, c.width, c.height);
+  const d = c.getContext('2d').getImageData(0, 0, c.width, c.height);
   return { width: c.width, height: c.height, data: new Uint8Array(d.data.buffer) };
 }
 function loadViaImage(blob, size) {
@@ -430,21 +605,17 @@ function loadViaImage(blob, size) {
       const w = size || img.naturalWidth || 512, h = size || img.naturalHeight || 512;
       const c = document.createElement('canvas'); c.width = w; c.height = h;
       c.getContext('2d').drawImage(img, 0, 0, w, h);
-      URL.revokeObjectURL(url);
-      resolve(imageFromCanvas(c));
+      URL.revokeObjectURL(url); resolve(imageFromCanvas(c));
     };
     img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Couldn't read that image.")); };
     img.src = url;
   });
 }
-async function decodeAny(buf) {
-  if (isPng(buf)) return loadViaImage(new Blob([buf], { type: 'image/png' }));
-  return decodeDib(buf);
-}
+const decodeAny = (buf) => (isPng(buf) ? loadViaImage(new Blob([buf], { type: 'image/png' })) : decodeDib(buf));
 async function loadFile(file) {
   const name = file.name.toLowerCase();
   sourceName = file.name.replace(/\.[^.]+$/, '');
-  if (name.endsWith('.exe') || name.endsWith('.dll')) throw new Error("Executables need the command line: dupe icon app.exe out.ico");
+  if (name.endsWith('.exe') || name.endsWith('.dll')) throw new Error('Executables need the command line: dupe icon app.exe out.ico');
   if (name.endsWith('.ico')) {
     const entries = readIco(Buffer.from(new Uint8Array(await file.arrayBuffer()))).sort((a, b) => b.width * b.height - a.width * a.height || b.bits - a.bits);
     for (const e of entries) { try { return await decodeAny(e.data); } catch { /* next */ } }
@@ -458,8 +629,7 @@ async function loadFile(file) {
   if (name.endsWith('.svg')) return loadViaImage(file, 512);
   return loadViaImage(file);
 }
-
-// ---------- samples: procedural, so no vendor logos ship with the page
+// Samples are drawn procedurally so no vendor logos ship with the page.
 function sample(kind) {
   const c = document.createElement('canvas'); c.width = c.height = 256;
   const g = c.getContext('2d');
@@ -479,12 +649,9 @@ function sample(kind) {
   }
   return imageFromCanvas(c);
 }
-
-// ---------- render
 function paint(canvas, img) {
-  const ctx = canvas.getContext('2d');
   const r = img.width === canvas.width ? img : resize(img, canvas.width, canvas.height);
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const ctx = canvas.getContext('2d'); ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.putImageData(new ImageData(new Uint8ClampedArray(r.data.buffer, r.data.byteOffset, r.data.length), r.width, r.height), 0, 0);
 }
 function render() {
@@ -520,8 +687,6 @@ const drop = $('#drop');
 for (const ev of ['dragenter', 'dragover']) drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add('over'); });
 for (const ev of ['dragleave', 'drop']) drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove('over'); });
 drop.addEventListener('drop', (e) => { const f = e.dataTransfer.files[0]; if (f) { for (const x of $('#samples').children) x.classList.remove('selected'); setSource(() => loadFile(f)); } });
-
-// ---------- downloads
 function download(bytes, name, type) {
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([bytes], { type })); a.download = name;
@@ -532,135 +697,11 @@ const tag = () => `${sourceName}-${color.slice(1)}`;
 $('#dl-png').addEventListener('click', () => download(encodePng(master), `${tag()}.png`, 'image/png'));
 $('#dl-ico').addEventListener('click', () => download(writeIco(ICO_SIZES.filter((s) => s <= Math.max(master.width, 256)).map((s) => resize(master, s, s))), `${tag()}.ico`, 'image/x-icon'));
 $('#dl-icns').addEventListener('click', () => download(writeIcns(ICNS_SIZES.filter((s) => s <= Math.max(master.width, 512)).map((s) => resize(master, s, s))), `${tag()}.icns`, 'image/x-icns'));
-
-// ---------- copy buttons
 document.addEventListener('click', async (e) => {
   const b = e.target.closest('.copy'); if (!b) return;
   try { await navigator.clipboard.writeText(b.dataset.copy); } catch { return; }
   const s = b.querySelector('span'); const old = s.textContent; s.textContent = 'Copied'; setTimeout(() => { s.textContent = old; }, 1500);
 });
-
-// ---------- live mode (served by `dupe ui`)
-let live = null;
-let pickedApp = null;
-let pcolor = null;
-let syncPSwatches = null;
-
-async function api(path, body) {
-  const r = await fetch(path, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : undefined);
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(j.error || `${r.status}`);
-  return j;
-}
-function titleCase(s) { return s.split(/[\s_-]+/).filter(Boolean).map((w) => w[0].toUpperCase() + w.slice(1)).join(' '); }
-function slug(s) { return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''); }
-function nextColor(appId) {
-  const used = new Set(live.profiles.filter((p) => p.app === appId).map((p) => p.color));
-  for (const c of live.colors) if (!used.has(c.hex)) return c.hex;
-  return live.colors[0].hex;
-}
-
-function renderApps() {
-  const el = $('#apps'); el.innerHTML = '';
-  const apps = [...live.apps].sort((a, b) => (b.found ? 1 : 0) - (a.found ? 1 : 0));
-  for (const app of apps) {
-    const b = document.createElement('button');
-    b.type = 'button'; b.className = 'tile'; b.disabled = !app.found; b.dataset.id = app.id;
-    b.setAttribute('aria-pressed', String(pickedApp === app.id));
-    const count = live.profiles.filter((p) => p.app === app.id).length;
-    b.innerHTML = `${app.found ? `<img alt="" src="/api/app-icon/${encodeURIComponent(app.id)}" loading="lazy">` : '<span class="ph"></span>'}<span class="t"><b>${app.name}</b><span>${app.found ? (count ? `${count} profile${count === 1 ? '' : 's'}` : 'installed') : 'not installed'}</span></span>`;
-    b.addEventListener('click', () => pickApp(app.id));
-    el.appendChild(b);
-  }
-}
-function pickApp(id) {
-  pickedApp = id;
-  for (const b of $('#apps').children) b.setAttribute('aria-pressed', String(b.dataset.id === id));
-  const app = live.apps.find((a) => a.id === id);
-  $('#builder').hidden = false;
-  $('#pname').value = ''; $('#pname').placeholder = live.profiles.some((p) => p.app === id && p.profile === 'work') ? 'client-a' : 'work';
-  $('#plabel').value = ''; $('#plabel').placeholder = `${app.name} ${titleCase($('#pname').placeholder)}`;
-  pcolor = nextColor(id);
-  syncPSwatches = swatches($('#pswatches'), (hex) => { pcolor = hex; syncPSwatches(); }, () => pcolor);
-  $('#build-out').hidden = true;
-  $('#build-note').textContent = app.verified ? '' : 'Preset relies on the Electron flag and hasn\'t been tested app by app.';
-  $('#pname').focus({ preventScroll: true });
-}
-$('#pname').addEventListener('input', () => {
-  const app = live.apps.find((a) => a.id === pickedApp);
-  const name = slug($('#pname').value) || $('#pname').placeholder;
-  $('#plabel').placeholder = `${app.name} ${titleCase(name)}`;
-});
-$('#build').addEventListener('click', async () => {
-  const app = live.apps.find((a) => a.id === pickedApp);
-  const profile = slug($('#pname').value) || $('#pname').placeholder;
-  const label = $('#plabel').value.trim() || $('#plabel').placeholder;
-  const btn = $('#build'); btn.disabled = true; btn.querySelector('span').textContent = 'Building…';
-  const out = $('#build-out'); out.hidden = true;
-  try {
-    const r = await api('/api/add', { app: app.id, profile, label, color: pcolor, treatment: 'auto' });
-    live.profiles = live.profiles.filter((p) => !(p.app === r.record.app && p.profile === r.record.profile)).concat([r.record]);
-    out.className = 'notice ok'; out.textContent = `Built ${r.record.label}! ${r.hint}`; out.hidden = false;
-    renderApps(); renderProfiles(r.record);
-  } catch (e) {
-    out.className = 'notice err'; out.textContent = `Couldn't build. ${e.message}`; out.hidden = false;
-  } finally {
-    btn.disabled = false; btn.querySelector('span').textContent = 'Build profile';
-  }
-});
-
-function renderProfiles(fresh) {
-  const el = $('#plist'); el.innerHTML = '';
-  if (!live.profiles.length) {
-    el.innerHTML = '<div class="empty"><b>No profiles yet</b>Pick an app above and build the first one.</div>';
-    return;
-  }
-  for (const p of live.profiles) {
-    const row = document.createElement('div');
-    row.className = 'prow' + (fresh && fresh.app === p.app && fresh.profile === p.profile ? ' new' : '');
-    const target = p.launcher || p.bundle || p.desktop || '';
-    row.innerHTML = `<img alt="" src="/api/profile-icon/${encodeURIComponent(p.app)}/${encodeURIComponent(p.profile)}?v=${encodeURIComponent(p.builtAt || '')}">
-      <div class="t"><b><i class="dotc" style="background:${p.color}"></i>${p.label}</b><span title="${target}">${p.appName} · ${p.profile} · ${p.color}</span></div>
-      <div class="row"><button class="btn secondary sm" type="button" data-act="open"><span>Open</span></button><button class="btn danger sm" type="button" data-act="remove"><span>Remove</span></button></div>
-      <div class="row" data-confirm hidden style="flex-basis:100%"><span class="small muted">Remove the launcher. Its data can stay for later.</span><button class="btn secondary sm" type="button" data-act="keep"><span>Keep data</span></button><button class="btn danger sm" type="button" data-act="purge"><span>Delete data</span></button><button class="btn secondary sm" type="button" data-act="cancel"><span>Cancel</span></button></div>`;
-    row.addEventListener('click', async (e) => {
-      const b = e.target.closest('[data-act]'); if (!b) return;
-      const act = b.dataset.act;
-      const confirm = row.querySelector('[data-confirm]');
-      if (act === 'open') { b.disabled = true; try { await api('/api/open', { app: p.app, profile: p.profile }); } catch (err) { alert(err.message); } b.disabled = false; return; }
-      if (act === 'remove') { confirm.hidden = false; return; }
-      if (act === 'cancel') { confirm.hidden = true; return; }
-      const purge = act === 'purge';
-      for (const x of row.querySelectorAll('button')) x.disabled = true;
-      try {
-        await api('/api/remove', { app: p.app, profile: p.profile, purge });
-        live.profiles = live.profiles.filter((x) => !(x.app === p.app && x.profile === p.profile));
-        renderApps(); renderProfiles();
-      } catch (err) { alert(`Couldn't remove. ${err.message}`); for (const x of row.querySelectorAll('button')) x.disabled = false; }
-    });
-    el.appendChild(row);
-  }
-}
-
-async function connect() {
-  const status = $('#status'), text = $('#status-text');
-  try {
-    const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 2500);
-    const r = await fetch('/api/state', { signal: ctrl.signal }); clearTimeout(t);
-    if (!r.ok) throw new Error();
-    live = await r.json();
-    status.classList.add('on');
-    const os = { win32: 'Windows', darwin: 'macOS', linux: 'Linux' }[live.platform] || live.platform;
-    text.textContent = `Connected · ${os}`;
-    $('#live').hidden = false;
-    renderApps(); renderProfiles();
-  } catch {
-    text.textContent = 'Browser only';
-    $('#hosted').hidden = false;
-    $('#profiles-sub').textContent = 'On a computer with the tool installed, this section lists your apps and builds profiles with a click.';
-  }
-}
-connect();
 </script>
 </body>
 </html>

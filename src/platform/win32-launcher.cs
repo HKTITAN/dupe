@@ -35,6 +35,7 @@ static class Config
     public const string ExePath = @"@EXE_PATH@";
     public const string MsixPattern = @"@MSIX_PATTERN@";
     public const string MsixExe = @"@MSIX_EXE@";
+    public const string MsixAlias = @"@MSIX_ALIAS@";
     public const string ProfileDir = @"@PROFILE_DIR@";
     public const string Arguments = @"@ARGUMENTS@";
     public static readonly string[] EnvKeys = new string[] { @ENV_KEYS@ };
@@ -124,10 +125,10 @@ static class Launcher
     static int Main(string[] args)
     {
         if (args.Length > 0 && args[0] == "--install-shortcut") return InstallShortcut(args.Length > 1 ? args[1] : null);
-        if (args.Length > 0 && args[0] == "--resolve") { string r = ResolveExe(); Console.WriteLine(r ?? ""); return r == null ? 1 : 0; }
+        List<string> candidates = Candidates();
+        if (args.Length > 0 && args[0] == "--resolve") { Console.WriteLine(string.Join("\n", candidates.ToArray())); return candidates.Count == 0 ? 1 : 0; }
 
-        string exe = ResolveExe();
-        if (exe == null)
+        if (candidates.Count == 0)
         {
             Native.MessageBoxW(IntPtr.Zero,
                 "Couldn't find the stock app this profile wraps.\n\nExpected: " + (Config.MsixPattern.Length > 0 ? Config.MsixPattern + "\\" + Config.MsixExe : Config.ExePath) +
@@ -142,19 +143,45 @@ static class Launcher
         StringBuilder cmd = new StringBuilder(Config.Arguments);
         foreach (string a in args) { cmd.Append(' '); cmd.Append(Quote(a)); }
 
-        ProcessStartInfo psi = new ProcessStartInfo(exe, cmd.ToString());
-        psi.UseShellExecute = false;
-        psi.WorkingDirectory = Path.GetDirectoryName(exe);
-        Process root;
-        try { root = Process.Start(psi); }
-        catch (Exception e)
+        // Some Store packages refuse to run their exe from outside the package
+        // (access denied) but publish an execution alias that launches with
+        // package identity and still inherits our arguments and environment.
+        // Try each candidate in order.
+        Process root = null;
+        string lastError = null;
+        foreach (string exe in candidates)
         {
-            Native.MessageBoxW(IntPtr.Zero, "Couldn't start " + exe + "\n\n" + e.Message, Config.Label, 0x10);
+            ProcessStartInfo psi = new ProcessStartInfo(exe, cmd.ToString());
+            psi.UseShellExecute = false;
+            try { psi.WorkingDirectory = Path.GetDirectoryName(exe); } catch { }
+            try { root = Process.Start(psi); break; }
+            catch (Exception e) { lastError = exe + "\n" + e.Message; }
+        }
+        if (root == null)
+        {
+            Native.MessageBoxW(IntPtr.Zero, "Couldn't start the app.\n\n" + lastError, Config.Label, 0x10);
             return 3;
         }
 
         TagWindowsUntilExit(root.Id);
         return 0;
+    }
+
+    // Launch candidates, best first: the resolved binary, then the package's
+    // execution alias (a reparse point under %LOCALAPPDATA%\Microsoft\WindowsApps).
+    static List<string> Candidates()
+    {
+        List<string> list = new List<string>();
+        string exe = ResolveExe();
+        if (exe != null) list.Add(exe);
+        if (Config.MsixAlias.Length > 0)
+        {
+            // File.Exists is false for execution aliases (stat is denied on
+            // the reparse point) even though CreateProcess works; add it
+            // unconditionally and let the launch attempt decide.
+            list.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Microsoft", "WindowsApps", Config.MsixAlias));
+        }
+        return list;
     }
 
     static IntPtr bigIcon = IntPtr.Zero, smallIcon = IntPtr.Zero;

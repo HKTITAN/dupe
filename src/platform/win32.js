@@ -53,6 +53,22 @@ function msixPackages(pattern) {
   return out.sort((a, b) => a.fullName < b.fullName ? 1 : -1);
 }
 
+// The app execution alias a package declares, if any: some packages deny
+// direct execution of their exe but launch fine through the alias.
+function executionAlias(root) {
+  try {
+    const manifest = fs.readFileSync(path.join(root, 'AppxManifest.xml'), 'utf8');
+    const m = /ExecutionAlias\s+Alias="([^"]+)"/.exec(manifest);
+    if (!m) return '';
+    // Execution aliases are reparse points that deny stat() but allow
+    // execute, so probe with access(X_OK) rather than existsSync.
+    const local = process.env.LOCALAPPDATA || '';
+    try { fs.accessSync(path.join(local, 'Microsoft', 'WindowsApps', m[1]), fs.constants.X_OK); return m[1]; } catch { return ''; }
+  } catch {
+    return '';
+  }
+}
+
 /** Find the stock executable for a preset (or a custom path). */
 export function locate(app) {
   if (app.custom) {
@@ -63,7 +79,7 @@ export function locate(app) {
   if (w.msix) {
     for (const pkg of msixPackages(w.msix.pattern)) {
       const exe = path.join(pkg.root, w.msix.exe);
-      if (fs.existsSync(exe)) return { exe, kind: 'msix', msix: w.msix, packageFullName: pkg.fullName };
+      if (fs.existsSync(exe)) return { exe, kind: 'msix', msix: w.msix, packageFullName: pkg.fullName, alias: executionAlias(pkg.root) };
     }
   }
   for (const raw of w.paths || []) {
@@ -133,6 +149,7 @@ export function build(app, opts, log = () => {}) {
     .replace('@EXE_PATH@', found.exe.replace(/"/g, '""'))
     .replace('@MSIX_PATTERN@', found.kind === 'msix' ? found.msix.pattern : '')
     .replace('@MSIX_EXE@', found.kind === 'msix' ? found.msix.exe : '')
+    .replace('@MSIX_ALIAS@', found.alias || '')
     .replace('@PROFILE_DIR@', opts.dataDir.replace(/"/g, '""'))
     .replace('@ARGUMENTS@', args.map(quoteArg).join(' ').replace(/"/g, '""'))
     .replace('@ENV_KEYS@', csArray(Object.keys(env)))
@@ -151,7 +168,7 @@ export function build(app, opts, log = () => {}) {
   log(`  start menu  ${lnk}`);
 
   return {
-    app: app.id, appName: app.name, profile: opts.profile, label: opts.label, color: opts.color, treatment,
+    app: app.id, appName: app.name, profile: opts.profile, label: opts.label, color: opts.color, treatment, custom: !!app.custom,
     platform: 'win32', dataDir: opts.dataDir, launcher: exe, shortcut: lnk, icon: ico, aumid,
     source: found.exe, sourceKind: found.kind, extraArgs: opts.extraArgs || [], extraEnv: opts.extraEnv || {},
     builtAt: new Date().toISOString(),

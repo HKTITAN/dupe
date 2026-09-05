@@ -118,9 +118,12 @@ export function build(app, opts, log = () => {}) {
     ].join('\n');
     fs.writeFileSync(path.join(macos, exeName), sh, { mode: 0o755 });
 
-    // Icon file, named whatever the bundle loads.
+    // Icon file, named whatever the bundle loads, plus a PNG for the UI.
     writeIcnsFile(master, path.join(dup, 'Contents', 'Resources', iconFile));
-    writePng(master, path.join(tmp, 'icon.png'));
+    const iconsDir = path.join(os.homedir(), 'Library', 'Application Support', 'dupe', 'icons');
+    fs.mkdirSync(iconsDir, { recursive: true });
+    const iconPng = path.join(iconsDir, `${app.id}-${opts.profile}.png`);
+    writePng(master, iconPng);
 
     // Distinct identity, frozen updates.
     const dupInfo = path.join(dup, 'Contents', 'Info.plist');
@@ -140,8 +143,8 @@ export function build(app, opts, log = () => {}) {
     log(`  bundle id   ${newId}`);
 
     return {
-      app: app.id, appName: app.name, profile: opts.profile, label: opts.label, color: opts.color, treatment,
-      platform: 'darwin', dataDir: opts.dataDir, bundle: dup, bundleId: newId, source: src,
+      app: app.id, appName: app.name, profile: opts.profile, label: opts.label, color: opts.color, treatment, custom: !!app.custom,
+      platform: 'darwin', dataDir: opts.dataDir, bundle: dup, bundleId: newId, source: src, iconPng,
       extraArgs: opts.extraArgs || [], extraEnv: opts.extraEnv || {}, builtAt: new Date().toISOString(),
     };
   } finally {

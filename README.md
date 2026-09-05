@@ -106,7 +106,7 @@ Neither lets one app clone another, so the answers are configuration rather than
 dupe ui
 ```
 
-opens `http://127.0.0.1:<port>/` in your browser: the apps found on this computer as pickable tiles, a profile builder (name, label, colour), your existing profiles with open/remove, and an icon studio. The page is the same file that is hosted at [hktitan.github.io/dupe](https://hktitan.github.io/dupe/); there, without a local server, it runs the icon pipeline in the browser (drop a PNG, SVG, ICO or ICNS, download a PNG, ICO or ICNS) and shows the commands for everything else. The API is bound to 127.0.0.1 and rejects cross-origin requests.
+opens `http://127.0.0.1:<port>/` in your browser. The flow is: pick an app (every installed preset, each shown with its original icon and the dupes it already has, plus "Another app" for any path), name the profile, and pick a colour from a strip of the app's own icon rendered in every palette colour, so you see the result before you build. Existing profiles can be opened, customised (new label or colour, rebuilt in place) or removed. An icon studio for arbitrary icon files sits below, collapsed. The page is the same file that is hosted at [hktitan.github.io/dupe](https://hktitan.github.io/dupe/); there, without a local server, it runs the icon pipeline in the browser (drop a PNG, SVG, ICO or ICNS, download a PNG, ICO or ICNS) and shows the commands for everything else. The API is bound to 127.0.0.1 and rejects cross-origin requests.
 
 ## Use it from your agent
 

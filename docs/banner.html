@@ -3,9 +3,10 @@
 <head>
 <meta charset="utf-8">
 <title>dupe banner</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;900&display=swap" rel="stylesheet">
+<style id="fonts">
+  /* Nunito variable, latin subset, SIL Open Font License. */
+  @font-face { font-family: Nunito; font-weight: 200 1000; font-style: normal; src: url(banner/nunito.woff2) format("woff2"); }
+</style>
 <style>
   html, body { margin: 0; background: #ffffff; }
   .banner {
@@ -24,6 +25,7 @@
   .grid img { width: 108px; height: 108px; display: block; margin: 0 auto; border-radius: 24px; }
   .grid .h.c { color: var(--c); }
   .badge { position: absolute; right: 64px; bottom: 30px; font-weight: 700; font-size: 15px; color: #afafaf; }
+  #export { position: fixed; left: 16px; top: 700px; font: 700 14px Nunito, sans-serif; }
 </style>
 </head>
 <body>
@@ -54,5 +56,73 @@
   </div>
   <div class="badge">blue still means work · after @wustep</div>
 </div>
+<button id="export" type="button">Export PNG (2400×1350)</button>
+<script>
+// Renders the banner to a 2x PNG in the browser: fonts and images are
+// inlined as data URIs, the DOM is serialised into an SVG foreignObject and
+// drawn on a canvas. Open with ?download to export on load.
+async function toDataUri(url) {
+  const r = await fetch(url); const b = await r.blob();
+  return new Promise((res) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.readAsDataURL(b); });
+}
+async function inlinedFontCss() {
+  const css = document.getElementById('fonts').textContent;
+  const urls = [...new Set([...css.matchAll(/url\(([^)]+)\)/g)].map((m) => m[1]))];
+  let out = css;
+  for (const u of urls) out = out.split(u).join(await toDataUri(u));
+  return out;
+}
+// Draws the same composition with the canvas API (foreignObject would taint
+// the canvas in Chrome). Fonts come from the document, images are same-origin.
+async function renderBanner(scale = 2) {
+  await document.fonts.load('900 60px Nunito'); await document.fonts.load('700 22px Nunito');
+  const c = document.createElement('canvas'); c.width = 1200 * scale; c.height = 675 * scale;
+  const g = c.getContext('2d'); g.scale(scale, scale);
+  g.fillStyle = '#ffffff'; g.fillRect(0, 0, 1200, 675);
+  const wrap = (text, font, maxW) => { g.font = font; const words = text.split(' '); const lines = []; let line = ''; for (const w of words) { const t = line ? line + ' ' + w : w; if (g.measureText(t).width > maxW && line) { lines.push(line); line = w; } else line = t; } if (line) lines.push(line); return lines; };
+  // Left column
+  let y = 176;
+  g.fillStyle = '#3c3c3c'; g.textBaseline = 'alphabetic';
+  for (const line of wrap('one app, as many profiles as you need', '900 60px Nunito', 440)) { g.font = '900 60px Nunito'; g.letterSpacing = '-1.2px'; g.fillText(line, 64, y); y += 61; }
+  g.letterSpacing = '0px'; y += 14;
+  g.fillStyle = '#6f6f6f';
+  for (const line of wrap('Claude, ChatGPT, Grok Bot or any Electron app. Own login, own data, own icon per profile. macOS, Windows, Linux.', '700 22px Nunito', 420)) { g.font = '700 22px Nunito'; g.fillText(line, 64, y); y += 30; }
+  y += 30;
+  const rr = (x, yy, w, h, r) => { g.beginPath(); g.roundRect(x, yy, w, h, r); };
+  rr(64, y - 26, 34, 34, 7); g.fillStyle = '#1b91e3'; g.fill();
+  rr(64 + 7.4, y - 26 + 7.4, 11.7, 11.7, 3); g.fillStyle = 'rgba(255,255,255,0.55)'; g.fill();
+  rr(64 + 14.9, y - 26 + 14.9, 11.7, 11.7, 3); g.fillStyle = '#fff'; g.fill();
+  g.fillStyle = '#1b91e3'; g.font = '900 24px Nunito'; g.fillText('github.com/HKTITAN/dupe', 110, y);
+  // Right grid
+  const cols = [{ t: 'personal', c: '#afafaf' }, { t: 'work', c: '#1b91e3' }, { t: 'client a', c: '#25a351' }, { t: 'sandbox', c: '#996fda' }];
+  const rows = [['Claude', 'claude'], ['ChatGPT', 'chatgpt'], ['Grok Bot', 'grok']];
+  const suffix = ['', '-blue', '-green', '-purple'];
+  const x0 = 1136 - (96 + 4 * 116 + 4 * 8), top = 138;
+  g.textAlign = 'center'; g.font = '900 15px Nunito'; g.letterSpacing = '0.6px';
+  cols.forEach((col, i) => { g.fillStyle = col.c; g.fillText(col.t.toUpperCase(), x0 + 96 + 8 + i * 124 + 58, top + 16); });
+  g.letterSpacing = '0px';
+  const load = (src) => new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = src; });
+  for (let r = 0; r < rows.length; r++) {
+    const cy = top + 30 + r * 126;
+    g.textAlign = 'right'; g.fillStyle = '#3c3c3c'; g.font = '900 16px Nunito'; g.fillText(rows[r][0], x0 + 96 - 8, cy + 64);
+    for (let i = 0; i < 4; i++) {
+      const im = await load(`banner/${rows[r][1]}${suffix[i]}.png`);
+      const x = x0 + 96 + 8 + i * 124 + 4, yy = cy + 4;
+      g.save(); rr(x, yy, 108, 108, 24); g.clip(); g.drawImage(im, x, yy, 108, 108); g.restore();
+    }
+  }
+  g.textAlign = 'right'; g.fillStyle = '#afafaf'; g.font = '700 15px Nunito'; g.fillText('blue still means work · after @wustep', 1136, 650);
+  return c;
+}
+async function exportPng() {
+  const c = await renderBanner(2);
+  const blob = await new Promise((res) => c.toBlob(res, 'image/png'));
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'dupe-banner.png';
+  document.body.appendChild(a); a.click(); a.remove();
+  document.getElementById('export').textContent = 'Exported dupe-banner.png';
+}
+document.getElementById('export').addEventListener('click', exportPng);
+if (location.search.includes('download')) window.addEventListener('load', () => setTimeout(exportPng, 800));
+</script>
 </body>
 </html>
