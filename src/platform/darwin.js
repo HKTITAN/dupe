@@ -170,6 +170,9 @@ export function build(app, opts, log = () => {}) {
     // which combined with an ad-hoc signature is what makes Gatekeeper refuse.
     // An unsigned modified bundle won't launch at all, so a failure here is
     // the end of the build rather than something to note and carry on past.
+    // The slowest step by a distance on a big Electron bundle, and the one
+    // that would otherwise look like a hang.
+    log('  signing     ad-hoc, over the whole bundle — this is the slow part');
     const signed = spawnSync('codesign', ['--force', '--deep', '--sign', '-', staging], { encoding: 'utf8' });
     if (signed.status !== 0) {
       throw new Error(`codesign wouldn't sign the clone: ${(signed.stderr || '').trim() || `exit ${signed.status}`}`);

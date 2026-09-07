@@ -15,7 +15,7 @@ Usage
   dupe list                      Apps found on this machine and profiles built so far
   dupe status [app] [profile]    Whether each profile is level with the app it copies
   dupe install <app>             Install the stock app itself, if it isn't here yet
-  dupe add <app> <profile>       Build a profile (e.g. dupe add claude work)
+  dupe add <app> [profile]       Build a profile (e.g. dupe add claude work; profile defaults to work)
   dupe remove <app> <profile>    Remove a profile's launcher (keeps its data unless --purge)
   dupe update [app] [profile]    Rebuild the profiles that are behind
   dupe autoupdate [on|off]       Do that in the background from now on (bare: show the schedule)
@@ -24,6 +24,7 @@ Usage
   dupe ui                        Open the interface in your browser, connected to this computer
   dupe icon <file> <out>         Recolour any icon file (.exe .ico .icns .png) on its own
   dupe colors                    The named palette
+  dupe log                       What the background updater has done lately
   dupe uninstall                 Remove every profile and everything dupe has written
 
 <app> is a preset id (dupe list) or a path to an app: .app, .exe, .desktop, AppImage.
@@ -82,18 +83,22 @@ export async function main(argv) {
     case 'list': return list();
     case 'colors': return colors();
     case 'status': return status(rest, values);
+    case 'log': return showLog();
     case 'uninstall': return uninstall(values, log);
     case 'install': {
       if (!rest[0]) throw new Error('Usage: dupe install <app>');
       return install(rest[0], values, log);
     }
     case 'add': {
-      if (!rest[0] || !rest[1]) throw new Error('Usage: dupe add <app> <profile>');
+      if (!rest[0]) throw new Error('Usage: dupe add <app> [profile]');
+      // Blue still means work, and the work one is the profile everybody
+      // builds first, so it is what you get for not saying.
+      const profile = rest[1] || 'work';
       if (values.install) await install(rest[0], { ...values, yes: true }, log);
-      const existed = !!core.findProfile((await import('./store.js')).loadStore(), rest[0], rest[1]);
+      const existed = !!core.findProfile((await import('./store.js')).loadStore(), rest[0], profile);
       let record;
       try {
-        record = await core.add(rest[0], rest[1], values, log);
+        record = await core.add(rest[0], profile, values, log);
       } catch (e) {
         // The commonest first-run failure is that the app isn't here at all;
         // say where it comes from rather than just that it's missing.
@@ -101,6 +106,13 @@ export async function main(argv) {
         throw advice ? new Error(`${e.message}\n\n${advice}`) : e;
       }
       console.log(`\n${swatch(record.color)} ${existed ? 'Updated' : 'Built'} ${bold(`"${record.label}"`)}. ${core.hint(record)}`);
+      // Said once, when the first profile appears and nothing is keeping it
+      // level yet. After that you know, and it stays quiet.
+      const built = (await import('./store.js')).loadStore().profiles.length;
+      if (!existed && built === 1 && !schedule.status().enabled) {
+        console.log(dim(`\n${record.appName} updates itself; this copy of it doesn't, unless you say so:`));
+        console.log(dim('  dupe autoupdate on'));
+      }
       return 0;
     }
     case 'remove': case 'rm': {
@@ -212,6 +224,26 @@ async function install(appSpec, values, log) {
   const r = await inst.install(appSpec, { via: step.via }, log);
   if (r.opened) console.log(`\nOpened ${r.opened}. Install it there, then run dupe again.`);
   else console.log(`\nInstalled ${p.app.name}. Now: dupe add ${p.app.id} work`);
+  return 0;
+}
+
+async function showLog() {
+  const fs = await import('node:fs');
+  const { LOG_FILE } = await import('./store.js');
+  let text = '';
+  try { text = fs.readFileSync(LOG_FILE, 'utf8'); } catch { /* nothing has run */ }
+  const lines = text.split('\n').filter(Boolean).slice(-30);
+  if (!lines.length) {
+    console.log(schedule.status().enabled
+      ? 'Nothing yet — the background updater only writes when it changes something.'
+      : "Nothing yet. Auto-update is off; dupe autoupdate on starts it.");
+    return 0;
+  }
+  for (const line of lines) {
+    const at = /^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)  (.*)$/.exec(line);
+    console.log(at ? `${dim(at[1])}  ${at[2]}` : line);
+  }
+  console.log(dim(`\n${LOG_FILE}`));
   return 0;
 }
 

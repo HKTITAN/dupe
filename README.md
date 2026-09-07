@@ -65,7 +65,7 @@ Either way there are no runtime dependencies: the image work (PNG, ICO, ICNS, PE
 dupe list                      Apps found on this machine and profiles built so far
 dupe status                    Whether each profile is level with the app it copies
 dupe install <app>             Install the stock app itself, if it isn't here yet
-dupe add <app> <profile>       Build a profile            dupe add chatgpt work
+dupe add <app> [profile]       Build a profile            dupe add claude   (profile: work)
 dupe add <app> <profile> --color green --label "Claude · Acme"
 dupe remove <app> <profile>    Remove the launcher (add --purge to delete its data too)
 dupe update [app] [profile]    Rebuild whatever is behind
@@ -74,6 +74,7 @@ dupe rebuild [app]             Rebuild every profile, behind or not
 dupe open <app> <profile>      Launch a profile
 dupe icon <in> <out> --color … Recolour an icon file on its own (.exe .ico .icns .png)
 dupe colors                    The palette
+dupe log                       What the background updater has done lately
 dupe uninstall                 Remove every profile and everything dupe has written
 ```
 
