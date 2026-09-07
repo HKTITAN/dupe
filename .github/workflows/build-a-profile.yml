@@ -1,0 +1,82 @@
+# Building a profile end to end, on the two operating systems whose backends
+# can't be exercised on the machine dupe is developed on.
+#
+# The runners ship Google Chrome, which is a harder case than the Electron
+# apps dupe is aimed at — a big bundle with nested helper apps on macOS — so
+# a failure here is worth reading rather than assuming. Allowed to fail for
+# that reason: it is a report, not a gate. The unit tests are the gate.
+name: build a profile
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  e2e:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: build one
+        run: node bin/dupe.js add chrome ci --color green --label "Chrome CI"
+
+      - name: it is in the store, and level with the app it copied
+        run: |
+          node bin/dupe.js status
+          node bin/dupe.js status --json | node -e "
+            const s = JSON.parse(require('fs').readFileSync(0, 'utf8'));
+            const p = s.profiles.find((x) => x.profile === 'ci');
+            if (!p) { console.error('the profile is not in the store'); process.exit(1); }
+            if (p.state !== 'current') { console.error('freshly built and already ' + p.state); process.exit(1); }
+            console.log('ok: ' + p.label + ' is ' + p.state);
+          "
+
+      - name: macOS — the clone is a working bundle
+        if: runner.os == 'macOS'
+        run: |
+          app="/Applications/Chrome CI.app"
+          test -d "$app" || { echo "no bundle at $app"; exit 1; }
+          exe="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")"
+          test -x "$app/Contents/MacOS/$exe" || { echo "no launcher"; exit 1; }
+          test -x "$app/Contents/MacOS/${exe}Main" || { echo "the real binary was not moved aside"; exit 1; }
+          bash -n "$app/Contents/MacOS/$exe" || { echo "the generated launcher is not valid bash"; exit 1; }
+          echo "--- launcher ---"; cat "$app/Contents/MacOS/$exe"
+          echo "--- identity ---"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$app/Contents/Info.plist"
+          codesign --verify --deep --strict "$app" && echo "signature verifies"
+
+      - name: linux — the entry points at the stock binary
+        if: runner.os == 'Linux'
+        run: |
+          entry="$HOME/.local/share/applications/dupe-chrome-ci.desktop"
+          test -f "$entry" || { echo "no .desktop at $entry"; exit 1; }
+          echo "--- entry ---"; cat "$entry"
+          grep -q 'StartupWMClass=' "$entry" || { echo "no StartupWMClass, so the dock will not match it"; exit 1; }
+          grep -q -- '--user-data-dir=' "$entry" || { echo "not actually isolated"; exit 1; }
+          test -f "$HOME/.local/share/icons/hicolor/256x256/apps/dupe-chrome-ci.png" || { echo "no icon installed into the theme"; exit 1; }
+          command -v desktop-file-validate >/dev/null && desktop-file-validate "$entry" && echo "the entry validates"
+
+      - name: rebuilding a level profile changes nothing
+        run: |
+          node bin/dupe.js update
+          node bin/dupe.js update | grep -q 'already current' || { echo "it wanted to rebuild something that was just built"; exit 1; }
+
+      - name: and it can be taken away again
+        run: |
+          node bin/dupe.js remove chrome ci --purge
+          node bin/dupe.js status
+          test "$(node bin/dupe.js status --json | node -pe "JSON.parse(require('fs').readFileSync(0,'utf8')).profiles.length")" = "0"
+
+      - name: macOS — nothing left behind
+        if: runner.os == 'macOS'
+        run: test ! -d "/Applications/Chrome CI.app" && echo "bundle gone"
