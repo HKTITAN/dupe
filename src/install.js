@@ -181,18 +181,60 @@ export async function download(step, log = () => {}) {
 
   const hash = crypto.createHash('sha256');
   const out = fs.createWriteStream(file);
-  let seen = 0, lastTick = 0;
-  for await (const chunk of response.body) {
-    hash.update(chunk);
-    seen += chunk.length;
-    if (!out.write(chunk)) await new Promise((r) => out.once('drain', r));
-    if (total && seen - lastTick > total / 10) { lastTick = seen; log(`  downloaded  ${Math.round((seen / total) * 100)}%`); }
+  // A write stream with no error listener raises an uncaught exception, and
+  // an error out of an fs callback cannot be caught by the try/catch around
+  // this await — so a full disk mid-download killed the process outright,
+  // and took `dupe ui` with it, since the server awaits this inside a
+  // request handler.
+  const failed = new Promise((_, reject) => out.once('error', reject));
+  let seen = 0, lastTick = 0, first = null;
+  try {
+    for await (const chunk of response.body) {
+      hash.update(chunk);
+      if (!first) first = Buffer.from(chunk.subarray(0, 8));
+      seen += chunk.length;
+      if (!out.write(chunk)) await Promise.race([new Promise((r) => out.once('drain', r)), failed]);
+      if (total && seen - lastTick > total / 10) { lastTick = seen; log(`  downloaded  ${Math.round((seen / total) * 100)}%`); }
+    }
+    await Promise.race([new Promise((r) => out.end(r)), failed]);
+  } catch (e) {
+    out.destroy();
+    fs.rmSync(dir, { recursive: true, force: true });
+    throw new Error(`Couldn't save the download: ${e.message}`);
   }
-  await new Promise((r) => out.end(r));
+  // A connection cut at 60% leaves an installer that is 60% of an installer,
+  // and it would have been run.
+  if (total && seen !== total) {
+    fs.rmSync(dir, { recursive: true, force: true });
+    throw new Error(`That download stopped early — ${seen} bytes of ${total}. Try again.`);
+  }
+  looksRunnable(first, file, dir);
   const digest = hash.digest('hex');
   log(`  file        ${file}`);
   log(`  sha256      ${digest}`);
   return { file, bytes: seen, sha256: digest, url };
+}
+
+/**
+ * Is this the kind of file it claims to be?
+ *
+ * `r.ok` only rules out a non-2xx status, so a CDN error page or a corporate
+ * proxy interstitial arrives as a perfectly good 200 and would have been
+ * executed. The first bytes settle it.
+ */
+function looksRunnable(first, file, dir) {
+  const ext = path.extname(file).toLowerCase();
+  const head = first || Buffer.alloc(0);
+  const starts = (...bytes) => bytes.every((b, i) => head[i] === b);
+  const ok = ext === '.exe' ? starts(0x4d, 0x5a) // MZ
+    : ext === '.msi' ? starts(0xd0, 0xcf, 0x11, 0xe0)
+      : ext === '.zip' ? starts(0x50, 0x4b)
+        : true; // .dmg and .pkg have no dependable first bytes
+  const html = /^\s*(<!doctype|<html)/i.test(head.toString('latin1'));
+  if (!ok || html) {
+    fs.rmSync(dir, { recursive: true, force: true });
+    throw new Error(`What came back isn't ${ext} — it looks like ${html ? 'a web page' : 'something else'}. The vendor's download page may have moved.`);
+  }
 }
 
 // ---- running what we fetched

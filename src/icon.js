@@ -32,8 +32,10 @@ export function makeIcon(source, colorHex, treatment = 'auto') {
   const stats = analyze(source);
   if (treatment === 'none') return { master: source, treatment: 'none', stats };
   const chosen = treatment === 'auto' ? chooseTreatment(stats) : treatment;
-  const { img } = recolor(source, colorHex, { treatment: chosen, stats });
-  return { master: img, treatment: chosen, stats };
+  // recolor may decline what was asked for — `hue` on an icon with no hue —
+  // so the treatment reported is the one that happened.
+  const { img, treatment: used } = recolor(source, colorHex, { treatment: chosen, stats });
+  return { master: img, treatment: used || chosen, stats };
 }
 
 function sizesFor(list, master) {

@@ -450,6 +450,9 @@ function colors() {
 
 function icon([input, output], values) {
   if (!input || !output) throw new Error('Usage: dupe icon <in.exe|.ico|.icns|.png> <out.ico|.icns|.png> --color blue');
+  // `dupe add` has always checked this; `dupe icon` took anything and
+  // quietly produced a ramp for a typo.
+  if (values.treatment) core.checkTreatment(values.treatment);
   const source = loadIcon(input);
   const color = resolveColor(values.color) || NAMED.blue;
   const { master, treatment, stats } = makeIcon(source, color, values.treatment || 'auto');

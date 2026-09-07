@@ -732,7 +732,14 @@ function labToBytes(lab) {
  */
 export function recolor(img, targetHex, opts = {}) {
   const stats = opts.stats || analyze(img);
-  const treatment = !opts.treatment || opts.treatment === 'auto' ? chooseTreatment(stats) : opts.treatment;
+  let treatment = !opts.treatment || opts.treatment === 'auto' ? chooseTreatment(stats) : opts.treatment;
+  // Rotating a hue needs one to rotate. A greyscale icon — the knot, the
+  // ghost, the ones the README names — has no dominant hue at all, and asking
+  // for `hue` used to dereference null and produce a stack trace, or in the
+  // interface nothing at all: the preview simply stopped updating. Fall back
+  // to what auto would have picked; every caller reports the treatment it
+  // actually got, so the answer is visible rather than silent.
+  if (treatment === 'hue' && !stats.dominant) treatment = chooseTreatment(stats);
   const out = new Uint8Array(img.data.length);
   const { data } = img;
   const [tL, tC, tH] = hexToOklch(targetHex);

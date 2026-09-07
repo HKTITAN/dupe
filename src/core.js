@@ -72,6 +72,11 @@ export function parseEnv(list) {
 
 const TREATMENTS = new Set(['auto', 'hue', 'ramp-light', 'ramp-dark', 'none']);
 
+export function checkTreatment(t) {
+  if (!TREATMENTS.has(t)) throw new Error(`Treatment must be one of ${[...TREATMENTS].join(', ')}.`);
+  return t;
+}
+
 // A label becomes a filename, a .desktop Name, a Start Menu shortcut and a
 // macOS bundle name, so what it may contain is the intersection of what all
 // of those accept.
@@ -99,8 +104,7 @@ export function prepare(app, profileName, values, store, existing) {
   // merely confusing to have two dock entries with one name.
   const clash = store.profiles.find((p) => p.label === label && !(p.app === app.id && p.profile === profile));
   if (clash) throw new Error(`"${label}" is already the name of ${clash.app}/${clash.profile}. Pass a different --label.`);
-  const treatment = values.treatment || (existing && existing.treatment) || 'auto';
-  if (!TREATMENTS.has(treatment)) throw new Error(`Treatment must be one of ${[...TREATMENTS].join(', ')}.`);
+  const treatment = checkTreatment(values.treatment || (existing && existing.treatment) || 'auto');
   // A custom icon may arrive as a path (--icon) or as base64 PNG data from
   // the interface; the data is saved once so rebuilds keep using it.
   let iconFile = values.icon ? path.resolve(values.icon) : null;

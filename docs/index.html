@@ -864,6 +864,16 @@ function paint(canvas, img) {
 }
 function render() {
   if (!source) return;
+  try {
+    draw();
+  } catch (e) {
+    // A throw in here used to go nowhere: the preview kept showing the last
+    // image and the caption never changed, so the studio looked frozen.
+    $('#caption').textContent = `Couldn't render that. ${e.message}`;
+  }
+}
+
+function draw() {
   const stats = lastStats || (lastStats = analyze(source));
   const chosen = treatment === 'auto' ? chooseTreatment(stats) : treatment;
   master = recolor(source, color, { treatment: chosen, stats }).img;

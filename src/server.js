@@ -21,12 +21,22 @@ const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; ch
 
 import crypto from 'node:crypto';
 import { DUPE_HOME } from './store.js';
-import { ORDER, NAMED } from './palette.js';
+import { ORDER, NAMED, resolveColor } from './palette.js';
 
 // Recoloured icons are cached in memory and on disk (keyed by source path,
 // colour and the source file's mtime), and pre-rendered for every installed
 // app at startup so the colour strips appear at once.
+// Bounded, because every distinct colour is a full recolour and a PNG kept
+// in memory. The interface only ever asks for the eight palette hues plus the
+// original, per app; a few hundred entries is more than a warm session needs.
+const ICON_CACHE_MAX = 400;
 const iconCache = new Map();
+
+function remember(key, png) {
+  iconCache.set(key, png);
+  while (iconCache.size > ICON_CACHE_MAX) iconCache.delete(iconCache.keys().next().value);
+  return png;
+}
 // The decoded source, too: one app is recoloured nine ways for its strip, and
 // pulling the icon out of a .exe's resources or an .icns is the expensive
 // half of that. Keyed by path and mtime, so an app that updates is re-read.
@@ -138,13 +148,12 @@ async function appIcon(source, profileHex) {
   const onDisk = cacheFile(file, profileHex);
   if (fs.existsSync(onDisk)) {
     const png = fs.readFileSync(onDisk);
-    iconCache.set(key, png);
-    return png;
+    return remember(key, png);
   }
   let img = loadSource(file);
   if (profileHex) img = makeIcon(img, profileHex, 'auto').master;
   const png = encodePng(resize(img, 128, 128));
-  iconCache.set(key, png);
+  remember(key, png);
   try { fs.mkdirSync(CACHE_DIR, { recursive: true }); fs.writeFileSync(onDisk, png); } catch { /* cache is optional */ }
   return png;
 }
@@ -162,7 +171,11 @@ async function api(req, res, url) {
     const source = p === '/api/icon' ? url.searchParams.get('source') : decodeURIComponent(p.split('/')[3]);
     try {
       if (!source) throw new Error('source required');
-      const png = await appIcon(source, url.searchParams.get('color'));
+      // Through the same door the CLI uses: a name or a #rrggbb, nothing
+      // else. Anything accepted here becomes a cache key, a recolour on the
+      // event loop and a file on disk.
+      const asked = url.searchParams.get('color');
+      const png = await appIcon(source, asked ? resolveColor(asked) : null);
       res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'private, max-age=300' });
       return res.end(png);
     } catch (e) { return json(res, 404, { error: e.message }); }
