@@ -31,12 +31,36 @@ const arch = () => (process.arch === 'arm64' ? 'arm64' : 'x64');
 // Probing a package manager costs a process, and `dupe list` asks about the
 // same three for every preset, so the answer is remembered for the run.
 const managers = new Map();
-function have(bin, probe = ['--version']) {
+
+/**
+ * Where a manager actually is, or null.
+ *
+ * The only reason this file ever passed `shell: true` was to get PATH lookup
+ * for `winget`. A shell that looks things up also parses what it is given,
+ * which is what made the download path dangerous — so the lookup is done
+ * once, explicitly, and everything afterwards runs by full path with no
+ * shell anywhere in this file. (Node deprecated the combination for exactly
+ * this reason.)
+ */
+function resolveBin(bin) {
   if (!managers.has(bin)) {
-    const r = spawnSync(bin, probe, { stdio: 'ignore', shell: process.platform === 'win32' });
-    managers.set(bin, r.status === 0);
+    const finder = process.platform === 'win32' ? 'where' : 'which';
+    const r = spawnSync(finder, [bin], { encoding: 'utf8' });
+    const lines = r.status === 0 ? (r.stdout || '').split(/[\r\n]+/) : [];
+    const first = lines.map((l) => l.trim()).find(Boolean);
+    managers.set(bin, first || null);
   }
   return managers.get(bin);
+}
+
+function have(bin, probe = ['--version']) {
+  const full = resolveBin(bin);
+  if (!full) return false;
+  const key = `ran:${bin}`;
+  if (!managers.has(key)) {
+    managers.set(key, spawnSync(full, probe, { stdio: 'ignore' }).status === 0);
+  }
+  return managers.get(key);
 }
 
 /**
@@ -123,13 +147,35 @@ async function resolve(url, hosts) {
   throw new Error(`${url} redirected more than ${MAX_REDIRECTS} times.`);
 }
 
-const NAME_FROM_URL = (u) => decodeURIComponent(new URL(u).pathname.split('/').pop() || '') || 'installer';
+// What dupe is willing to run, and the only thing it takes from the URL.
+const KINDS = ['.exe', '.msi', '.dmg', '.pkg', '.zip'];
+
+/**
+ * The name to save a download under.
+ *
+ * Not the one in the URL. The last hop of a redirect chain is not the
+ * vendor — releases live on CDNs — so the chain got to choose the filename,
+ * and a decoded `..%5C..%5CStartup%5Cx.exe` walked straight out of the
+ * private temp directory it was supposed to land in. Windows filenames may
+ * also contain " and &, which mattered when the file was later handed to a
+ * shell. So the chain gets to choose one thing: which of a handful of
+ * extensions it is, and only if it names one at all.
+ */
+function downloadName(url) {
+  let last = '';
+  try { last = decodeURIComponent(new URL(url).pathname.split('/').pop() || ''); } catch { last = ''; }
+  const ext = KINDS.find((k) => last.toLowerCase().endsWith(k));
+  if (!ext) throw new Error(`That download isn't one of ${KINDS.join(', ')} — dupe won't run it. It came from ${new URL(url).host}.`);
+  return `installer${ext}`;
+}
 
 /** Fetch the installer to a temp file. Returns its path, size and digest. */
 export async function download(step, log = () => {}) {
   const { response, url } = await resolve(step.url, step.hosts || []);
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dupe-install-'));
-  const file = path.join(dir, NAME_FROM_URL(url));
+  const file = path.join(dir, downloadName(url));
+  // Belt and braces: whatever the name turned out to be, it stays here.
+  if (path.dirname(file) !== dir) throw new Error('Refusing to write the download outside its own directory.');
   const total = Number(response.headers.get('content-length') || 0);
   log(`  from        ${new URL(url).host}${total ? `  ${(total / 1048576).toFixed(1)} MB` : ''}`);
 
@@ -151,9 +197,23 @@ export async function download(step, log = () => {}) {
 
 // ---- running what we fetched
 
+/**
+ * Run something, without a shell in the way.
+ *
+ * `shell: true` on Windows means cmd.exe parses the command line, and the
+ * command line included a path dupe had just taken from a URL: a file
+ * called `a"&calc&".exe` is a legal Windows filename and cmd runs the middle
+ * of it. It also broke the ordinary case — any user whose profile directory
+ * has a space in it got `'C:\Users\Two' is not recognized`. Executing the
+ * file directly has neither problem.
+ *
+ * The package managers are resolved to a full path by resolveBin above, so
+ * nothing in this file needs a shell at all any more.
+ */
 function run(cmd, args, log) {
   log(`  running     ${cmd} ${args.join(' ')}`);
-  const r = spawnSync(cmd, args, { stdio: 'inherit', shell: process.platform === 'win32' });
+  const r = spawnSync(cmd, args, { stdio: 'inherit' });
+  if (r.error && r.error.code === 'ENOENT') throw new Error(`${cmd} isn't on this machine.`);
   if (r.status !== 0) throw new Error(`${cmd} exited with ${r.status}.`);
 }
 
@@ -164,10 +224,10 @@ function openPage(url) {
 }
 
 // A downloaded installer is handed to the thing that knows how to run it.
-function runInstaller(file, log) {
+function runInstaller(file, log, expect = []) {
   const ext = path.extname(file).toLowerCase();
   if (process.platform === 'win32') return run(file, [], log);
-  if (process.platform === 'darwin' && ext === '.dmg') return installDmg(file, log);
+  if (process.platform === 'darwin' && ext === '.dmg') return installDmg(file, log, expect);
   if (process.platform === 'darwin' && (ext === '.zip' || ext === '.pkg')) {
     return ext === '.pkg'
       ? run('open', [file], log) // a .pkg needs the installer UI and its own authorisation
@@ -176,20 +236,51 @@ function runInstaller(file, log) {
   throw new Error(`dupe doesn't know how to run ${path.basename(file)} on ${process.platform}. It is at ${file}.`);
 }
 
-// Mount, copy the bundle out, unmount. No sudo: /Applications is writable by
-// the admin user, and if it isn't, the error says so plainly.
-function installDmg(file, log) {
+/**
+ * Mount, copy the bundle out, unmount. No sudo: /Applications is writable by
+ * the admin user, and if it isn't, the error says so plainly.
+ *
+ * Two rules, both learned the hard way. The image does not get to choose
+ * which app is replaced — it must contain the app dupe said it was
+ * installing, or nothing happens. And the app already installed is not
+ * deleted until its replacement is in place: the copy can fail on a full
+ * disk or a read-only volume, and deleting first meant a user who had a
+ * working install ended up with none.
+ */
+function installDmg(file, log, expect = []) {
   const point = fs.mkdtempSync(path.join(os.tmpdir(), 'dupe-dmg-'));
   const r = spawnSync('hdiutil', ['attach', '-nobrowse', '-readonly', '-mountpoint', point, file], { encoding: 'utf8' });
   if (r.status !== 0) throw new Error(`Couldn't mount ${path.basename(file)}: ${(r.stderr || '').trim()}`);
   try {
-    const bundle = fs.readdirSync(point).find((n) => n.endsWith('.app'));
-    if (!bundle) throw new Error(`${path.basename(file)} has no .app inside it.`);
+    const bundles = fs.readdirSync(point).filter((n) => n.endsWith('.app'));
+    if (!bundles.length) throw new Error(`${path.basename(file)} has no .app inside it.`);
+    const bundle = expect.length ? bundles.find((b) => expect.includes(b)) : bundles[0];
+    if (!bundle) {
+      throw new Error(`${path.basename(file)} contains ${bundles.join(', ')}, not ${expect.join(' or ')}. dupe won't install something else under that name.`);
+    }
     const target = path.join('/Applications', bundle);
+    const staged = `${target}.dupe-installing`;
+    const kept = `${target}.dupe-previous`;
     log(`  installing  ${target}`);
-    fs.rmSync(target, { recursive: true, force: true });
-    const cp = spawnSync('cp', ['-R', path.join(point, bundle), target], { encoding: 'utf8' });
-    if (cp.status !== 0) throw new Error(`Couldn't copy into /Applications: ${(cp.stderr || '').trim()}`);
+    fs.rmSync(staged, { recursive: true, force: true });
+    const cp = spawnSync('cp', ['-R', path.join(point, bundle), staged], { encoding: 'utf8' });
+    if (cp.status !== 0) {
+      fs.rmSync(staged, { recursive: true, force: true });
+      throw new Error(`Couldn't copy into /Applications: ${(cp.stderr || '').trim()}`);
+    }
+    // The swap. The old one is moved aside, not deleted, until the new one
+    // is in place — so a failure here leaves the machine as it was.
+    const had = fs.existsSync(target);
+    try {
+      fs.rmSync(kept, { recursive: true, force: true });
+      if (had) fs.renameSync(target, kept);
+      fs.renameSync(staged, target);
+    } catch (e) {
+      if (had && !fs.existsSync(target) && fs.existsSync(kept)) fs.renameSync(kept, target);
+      fs.rmSync(staged, { recursive: true, force: true });
+      throw new Error(`Couldn't put ${bundle} into /Applications: ${e.message}`);
+    }
+    fs.rmSync(kept, { recursive: true, force: true });
     spawnSync('xattr', ['-dr', 'com.apple.quarantine', target], { stdio: 'ignore' });
   } finally {
     spawnSync('hdiutil', ['detach', point, '-quiet'], { stdio: 'ignore' });
@@ -215,11 +306,11 @@ export async function install(appSpec, { via = null } = {}, log = () => {}) {
   }
   if (step.via === 'download') {
     const got = await download(step, log);
-    runInstaller(got.file, log);
+    runInstaller(got.file, log, (p.app.darwin && p.app.darwin.bundles) || []);
     fs.rmSync(path.dirname(got.file), { recursive: true, force: true });
     return { ...p, step, downloaded: got };
   }
-  run(step.run[0], step.run[1], log);
+  run(resolveBin(step.run[0]) || step.run[0], step.run[1], log);
   return { ...p, step };
 }
 
