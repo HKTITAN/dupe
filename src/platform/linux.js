@@ -292,3 +292,29 @@ export function stamp(app) {
 export function running() {
   return false;
 }
+
+/** Electron apps with a .desktop entry that no preset covers. The entry
+ *  points at a binary, and an Electron install keeps an app.asar beside it. */
+export function discover() {
+  const out = [];
+  const seen = new Set();
+  for (const dir of APP_DIRS) {
+    let entries = [];
+    try { entries = fs.readdirSync(dir); } catch { continue; }
+    for (const name of entries) {
+      if (!name.endsWith('.desktop')) continue;
+      if (name.startsWith('dupe-')) continue; // our own
+      let d;
+      try { d = parseDesktop(path.join(dir, name)); } catch { continue; }
+      const exec = String(d.Exec || '').trim();
+      const first = exec.startsWith('"') ? exec.slice(1, exec.indexOf('"', 1)) : exec.split(/\s+/)[0];
+      if (!first || !path.isAbsolute(first)) continue;
+      const real = fs.existsSync(first) ? fs.realpathSync(first) : null;
+      if (!real || seen.has(real)) continue;
+      seen.add(real);
+      if (!fs.existsSync(path.join(path.dirname(real), 'resources', 'app.asar'))) continue;
+      out.push({ name: d.Name || name.replace(/\.desktop$/, ''), path: path.join(dir, name) });
+    }
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name));
+}

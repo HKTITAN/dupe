@@ -246,3 +246,68 @@ export function running(record) {
     return !!first && first[1].toLowerCase() === name.toLowerCase();
   });
 }
+
+// ---- finding apps there is no preset for.
+//
+// A preset is a promise about where an app lives and what else it pins, and
+// the list of them is short on purpose. But dupe works on anything that
+// honours --user-data-dir, and an Electron install announces itself: an
+// app.asar sitting next to the executable. So rather than guess at paths for
+// a hundred more apps, look for that.
+
+const SKIP = /^(update|squirrel|elevate|unins\w*|.*(helper|crashpad|setup|installer))\.exe$/i;
+
+function readdirSafe(dir) {
+  try { return fs.readdirSync(dir, { withFileTypes: true }); } catch { return []; }
+}
+
+// The executable a user would double-click: the one named after its folder,
+// or failing that the biggest one that isn't obviously a helper.
+function mainExe(dir) {
+  const exes = readdirSafe(dir).filter((e) => e.isFile() && e.name.toLowerCase().endsWith('.exe') && !SKIP.test(e.name));
+  if (!exes.length) return null;
+  const folder = path.basename(dir).toLowerCase();
+  const named = exes.find((e) => e.name.toLowerCase() === `${folder}.exe`);
+  if (named) return path.join(dir, named.name);
+  let best = null, bestSize = -1;
+  for (const e of exes) {
+    let size = 0;
+    try { size = fs.statSync(path.join(dir, e.name)).size; } catch { continue; }
+    if (size > bestSize) { best = e.name; bestSize = size; }
+  }
+  return best ? path.join(dir, best) : null;
+}
+
+/** Electron apps installed here, whatever they are. */
+export function discover() {
+  const dirs = [];
+  const local = process.env.LOCALAPPDATA;
+  if (local) {
+    for (const e of readdirSafe(path.join(local, 'Programs'))) {
+      if (e.isDirectory()) dirs.push(path.join(local, 'Programs', e.name));
+    }
+    // Squirrel keeps the app under a versioned folder and updates by adding
+    // a new one, so only the newest is interesting.
+    for (const e of readdirSafe(local)) {
+      if (!e.isDirectory()) continue;
+      const versions = readdirSafe(path.join(local, e.name))
+        .filter((v) => v.isDirectory() && /^app-\d/.test(v.name))
+        .map((v) => v.name).sort().reverse();
+      if (versions.length) dirs.push(path.join(local, e.name, versions[0]));
+    }
+  }
+  for (const root of [process.env.PROGRAMFILES, process.env['PROGRAMFILES(X86)']]) {
+    if (!root) continue;
+    for (const e of readdirSafe(root)) if (e.isDirectory()) dirs.push(path.join(root, e.name));
+  }
+
+  const out = [];
+  const seen = new Set();
+  for (const dir of dirs) {
+    const exe = mainExe(dir);
+    if (!exe || !isElectron(exe) || seen.has(exe.toLowerCase())) continue;
+    seen.add(exe.toLowerCase());
+    out.push({ name: path.basename(exe, '.exe'), path: exe });
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name));
+}

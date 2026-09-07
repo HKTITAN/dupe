@@ -348,3 +348,22 @@ function killClone(bundle) {
 export function running(record) {
   return !!record.bundle && clonePids(record.bundle).length > 0;
 }
+
+/** Electron apps installed here that no preset covers. A bundle says so
+ *  itself — the framework, or an app.asar in Resources — so this is a
+ *  directory listing and a couple of stats per app, not a guess. */
+export function discover() {
+  const out = [];
+  for (const dir of APPS_DIRS) {
+    let entries = [];
+    try { entries = fs.readdirSync(dir); } catch { continue; }
+    for (const name of entries) {
+      if (!name.endsWith('.app')) continue;
+      const bundle = path.join(dir, name);
+      if (!fs.existsSync(path.join(bundle, 'Contents', 'Info.plist'))) continue;
+      if (!isElectron(bundle)) continue;
+      out.push({ name: name.replace(/\.app$/, ''), path: bundle });
+    }
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name));
+}

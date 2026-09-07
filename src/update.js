@@ -81,7 +81,7 @@ export function whyStale(record, stamp, version = null) {
 export async function check({ app, profile } = {}) {
   const be = await core.backend();
   const store = loadStore();
-  const only = app ? core.resolveApp(app).id : null;
+  const only = app ? core.resolveApp(app, be).id : null;
   const onlyProfile = profile ? slug(profile) : null;
   const stamps = new Map();
   const profiles = [];
@@ -136,7 +136,7 @@ async function settle(be, app, stamp) {
 export async function update({ app, profile, all = false, force = false, scheduled = false } = {}, log = () => {}) {
   const be = await core.backend();
   const store = loadStore();
-  const only = app ? core.resolveApp(app).id : null;
+  const only = app ? core.resolveApp(app, be).id : null;
   const onlyProfile = profile ? slug(profile) : null;
   const stamps = new Map();
   const result = { updated: [], deferred: [], failed: [], missing: [], current: 0, checked: 0 };

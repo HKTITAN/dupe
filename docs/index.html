@@ -415,12 +415,24 @@ async function api(path, body) {
   if (!r.ok) throw new Error(j.error || `${r.status}`);
   return j;
 }
-const profilesOf = (id) => live.profiles.filter((p) => p.app === id);
+// A discovered app is keyed by its path, and its profiles are stored under
+// the id dupe slugged from its name, so match either way round.
+const profilesOf = (id) => live.profiles.filter((p) => p.app === id || p.source === id);
 function nextColor(id) {
   const used = new Set(profilesOf(id).map((p) => p.color));
   return (live.colors.find((c) => !used.has(c.hex)) || live.colors[0]).hex;
 }
 const sourceOf = (rec) => (rec.custom ? rec.source : rec.app);
+
+// Presets, plus every Electron app the server found that no preset covers.
+// A discovered app is identified by its own path, which is exactly what the
+// API takes for anything that isn't a preset, so it needs no special case
+// past this line. Not "verified" — nobody has tested them one by one — so
+// the builder shows the same note it shows for untested presets.
+const allApps = () => [
+  ...(live.apps || []),
+  ...(live.others || []).map((o) => ({ id: o.path, name: o.name, kind: 'electron', verified: false, found: o.path, path: o.path, discovered: true })),
+];
 
 // One strip = original + every palette colour. `urlFor(hex|null)` supplies the
 // image: the server's rendering of the app's icon, or a local rendering of an
@@ -462,7 +474,7 @@ const previewUrlFor = () => (customIcon ? (hex) => localIconUrl(hex, $('#precolo
 
 function renderApps() {
   const el = $('#apps'); el.innerHTML = '';
-  const installed = live.apps.filter((a) => a.found);
+  const installed = allApps().filter((a) => a.found);
   for (const app of installed) {
     const dupes = profilesOf(app.id);
     const b = document.createElement('button');
@@ -484,7 +496,7 @@ function renderApps() {
 }
 
 function currentApp() {
-  if (pickedApp !== '__custom') return live.apps.find((a) => a.id === pickedApp);
+  if (pickedApp !== '__custom') return allApps().find((a) => a.id === pickedApp);
   const p = $('#cpath').value.trim();
   const name = p.split(/[\\/]/).filter(Boolean).pop()?.replace(/\.(app|exe|desktop|AppImage)$/i, '') || 'App';
   return { id: '__custom', name, path: p, verified: true };
@@ -502,7 +514,9 @@ function pickApp(id) {
   $('#plabel').value = ''; $('#phex').value = '';
   clearCustomIcon();
   pcolor = id === '__custom' ? live.colors[0].hex : nextColor(id);
-  $('#build-note').textContent = app.verified ? '' : "This preset relies on the Electron flag and hasn't been tested app by app.";
+  $('#build-note').textContent = app.discovered
+    ? `Found on this machine rather than in the preset list. dupe will isolate it with the Electron flag, which works for anything built on Electron — ${app.name} hasn't been tested individually.`
+    : app.verified ? '' : "This preset relies on the Electron flag and hasn't been tested app by app.";
   refreshBuilder();
   (id === '__custom' ? $('#cpath') : $('#pname')).focus({ preventScroll: true });
 }

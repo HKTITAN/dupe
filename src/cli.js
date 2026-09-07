@@ -168,6 +168,20 @@ async function list() {
     const where = app.found ? dim(app.found) : `${dim('not installed')}${how}`;
     console.log(`  ${app.found ? '●' : dim('○')} ${app.id.padEnd(10)} ${app.name.padEnd(20)} ${where}`);
   }
+  if (s.others && s.others.length) {
+    console.log(`\n${bold('Also on this machine')}  ${dim('— Electron apps with no preset. They work the same way.')}`);
+    const names = s.others.map((o) => o.name);
+    const width = process.stdout.columns || 80;
+    let line = ' ';
+    for (const n of names) {
+      if (line.length + n.length + 2 > width - 2) { console.log(line); line = ' '; }
+      line += ` ${n}${n === names[names.length - 1] ? '' : ','}`;
+    }
+    if (line.trim()) console.log(line);
+    const example = /\s/.test(names[0]) ? `"${names[0]}"` : names[0];
+    console.log(dim(`  dupe add ${example} work${names.length > 1 ? '  — or any of the others' : ''}`));
+  }
+
   console.log(`\n${bold('Profiles')}`);
   if (!s.profiles.length) { console.log(dim('  none yet — try: dupe add claude work')); return 0; }
   // Which are behind, so one command answers both "what have I built" and

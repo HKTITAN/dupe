@@ -16,11 +16,24 @@ export async function backend() {
   }
 }
 
-export function resolveApp(spec) {
+/**
+ * The app a command is about: a preset id, a path, or — given a backend to
+ * ask — the name of any Electron app installed here. The last one is what
+ * makes `dupe add canva work` work without Canva ever having been added to
+ * the preset list: dupe profiles anything that honours --user-data-dir, and
+ * an Electron install is recognisable on sight.
+ */
+export function resolveApp(spec, be = null) {
   const preset = findApp(spec);
   if (preset) return preset;
   if (spec && fs.existsSync(spec)) return customApp(spec);
-  throw new Error(`"${spec}" is neither a preset (see dupe list) nor a path that exists.`);
+  if (be && be.discover) {
+    const want = slug(spec);
+    let hit = null;
+    try { hit = be.discover().find((o) => slug(o.name) === want); } catch { /* fall through to the error */ }
+    if (hit) return customApp(hit.path, hit.name);
+  }
+  throw new Error(`"${spec}" is not a preset, an app on this machine, or a path that exists. dupe list shows what's here.`);
 }
 
 export function parseEnv(list) {
@@ -107,9 +120,19 @@ export async function state() {
     const found = where ? (where.exe || where.bundle || where.desktop || where.exec) : null;
     return { id: app.id, name: app.name, kind: app.kind, verified: !!app.verified, found, path: found };
   });
+  // Anything Electron that no preset covers. dupe works on these too — they
+  // just have to be named by path — so listing them is the difference
+  // between "dupe supports twelve apps" and "dupe supports what you have".
+  let others = [];
+  try {
+    const known = new Set(apps.map((a) => a.found && path.resolve(a.found).toLowerCase()).filter(Boolean));
+    others = (be.discover ? be.discover() : []).filter((o) => !known.has(path.resolve(o.path).toLowerCase()));
+  } catch { /* discovery is a convenience */ }
+
   return {
     platform: process.platform,
     apps,
+    others,
     profiles: store.profiles,
     colors: ORDER.map((name) => ({ name, hex: NAMED[name] })),
     autoupdate: schedule.status(),
@@ -118,7 +141,7 @@ export async function state() {
 
 export async function add(appSpec, profileName, values = {}, log = () => {}) {
   const be = await backend();
-  const app = resolveApp(appSpec);
+  const app = resolveApp(appSpec, be);
   const store = loadStore();
   const existing = store.profiles.find((p) => p.app === app.id && p.profile === slug(profileName));
   const opts = prepare(app, profileName, values, store, existing);
@@ -164,7 +187,7 @@ export async function remove(appSpec, profileName, { purge = false } = {}, log =
 export async function rebuild(appSpec, values = {}, log = () => {}) {
   const be = await backend();
   const store = loadStore();
-  const only = appSpec ? resolveApp(appSpec).id : null;
+  const only = appSpec ? resolveApp(appSpec, be).id : null;
   const targets = store.profiles.filter((p) => !only || p.app === only);
   const results = [];
   for (const old of targets) {

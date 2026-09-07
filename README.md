@@ -82,7 +82,19 @@ dupe uninstall                 Remove every profile and everything dupe has writ
 
 Every command on one page: [the cheatsheet](docs/cheatsheet.png).
 
-`<app>` is a preset id or a path to the app itself (`/Applications/Foo.app`, `C:\…\Foo.exe`, `foo.desktop`, `Foo.AppImage`). Presets know where each app installs and what extra state has to be pinned:
+`<app>` is a preset id, the name of any Electron app on your machine, or a path (`/Applications/Foo.app`, `C:\…\Foo.exe`, `foo.desktop`, `Foo.AppImage`).
+
+The preset list is short on purpose — each one is a promise about where an app installs and what else it pins — but dupe works on anything that honours `--user-data-dir`, and an Electron install announces itself with an `app.asar` next to the binary. So `dupe list` also shows what else it found here, and those work by name:
+
+```
+Also on this machine  — Electron apps with no preset. They work the same way.
+  Canva, ClickUp, Devin, Notion Calendar, Open Design, Recordly
+  dupe add ClickUp work
+```
+
+The interface shows them as tiles alongside the presets, with their own icons.
+
+Presets know where each app installs and what extra state has to be pinned:
 
 | Preset | Extra isolation | Verified |
 | --- | --- | --- |
