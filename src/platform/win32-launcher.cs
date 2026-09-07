@@ -73,6 +73,8 @@ static class Native
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] public static extern bool Process32FirstW(IntPtr snap, ref PROCESSENTRY32W entry);
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] public static extern bool Process32NextW(IntPtr snap, ref PROCESSENTRY32W entry);
     [DllImport("kernel32.dll")] public static extern bool CloseHandle(IntPtr h);
+    [DllImport("kernel32.dll", SetLastError = true)] public static extern IntPtr OpenProcess(uint access, bool inherit, uint pid);
+    [DllImport("kernel32.dll", SetLastError = true)] public static extern bool GetProcessTimes(IntPtr h, out long creation, out long exit, out long kernel, out long user);
 
     [StructLayout(LayoutKind.Sequential, Pack = 4)] public struct PROPERTYKEY { public Guid fmtid; public uint pid; }
     [StructLayout(LayoutKind.Sequential)] public struct PROPVARIANT { public ushort vt; public ushort r1; public ushort r2; public ushort r3; public IntPtr p; public IntPtr p2; }
@@ -237,8 +239,11 @@ static class Launcher
             HashSet<uint> pids = Descendants((uint)rootPid);
             if (pids.Count == 0)
             {
-                // Give a stub a moment to hand off before concluding the app is gone.
-                if (++quietTicks > 8) break;
+                // A stub that re-execs and exits leaves nothing alive for a
+                // moment. The remembered set survives that now, so this wait
+                // can actually catch the handoff rather than just delaying
+                // the exit by a second and a half.
+                if (++quietTicks > 25) break;
             }
             else quietTicks = 0;
 
@@ -291,9 +296,20 @@ static class Launcher
         if (smallIcon != IntPtr.Zero) Native.SendMessageW(hwnd, Native.WM_SETICON, IntPtr.Zero, smallIcon);
     }
 
+    // Every pid this profile's process tree has ever contained. The set has
+    // to be sticky: rebuilding it from the live root each tick meant that the
+    // moment the started process exited — which is exactly what a stub or a
+    // relauncher does after handing off — the set emptied and no amount of
+    // waiting brought it back, because an orphan's recorded parent no longer
+    // resolves to anything. The launcher then gave up 1.6 seconds after
+    // launch, stamped nothing, and the profile's windows fell into the stock
+    // app's taskbar group with the stock icon.
+    static readonly HashSet<uint> known = new HashSet<uint>();
+
     static HashSet<uint> Descendants(uint rootPid)
     {
         Dictionary<uint, uint> parentOf = new Dictionary<uint, uint>();
+        Dictionary<uint, long> startedAt = new Dictionary<uint, long>();
         HashSet<uint> alive = new HashSet<uint>();
         IntPtr snap = Native.CreateToolhelp32Snapshot(2, 0);
         if (snap != IntPtr.Zero && snap != new IntPtr(-1))
@@ -307,18 +323,53 @@ static class Launcher
             }
             Native.CloseHandle(snap);
         }
-        HashSet<uint> result = new HashSet<uint>();
-        if (alive.Contains(rootPid)) result.Add(rootPid);
+        known.Add(rootPid);
+
+        // Grow the remembered set by following parentage, but only where the
+        // child really started after its parent. Windows reuses pids, and an
+        // unrelated process whose recorded parent happens to match a pid we
+        // remember would otherwise be handed this profile's identity, icon
+        // and relaunch command.
         bool grew = true;
         while (grew)
         {
             grew = false;
             foreach (KeyValuePair<uint, uint> kv in parentOf)
             {
-                if (result.Contains(kv.Value) && !result.Contains(kv.Key) && kv.Key != kv.Value) { result.Add(kv.Key); grew = true; }
+                if (kv.Key == kv.Value || known.Contains(kv.Key) || !known.Contains(kv.Value)) continue;
+                if (!StartedAfter(kv.Key, kv.Value, startedAt)) continue;
+                known.Add(kv.Key);
+                grew = true;
             }
         }
-        return result;
+
+        HashSet<uint> live = new HashSet<uint>();
+        foreach (uint pid in known) if (alive.Contains(pid)) live.Add(pid);
+        return live;
+    }
+
+    // Process creation times, so a recycled pid cannot pose as our child.
+    static bool StartedAfter(uint child, uint parent, Dictionary<uint, long> cache)
+    {
+        long c = StartTime(child, cache), p = StartTime(parent, cache);
+        if (c == 0 || p == 0) return true; // cannot tell: do not exclude
+        return c >= p;
+    }
+
+    static long StartTime(uint pid, Dictionary<uint, long> cache)
+    {
+        long known2;
+        if (cache.TryGetValue(pid, out known2)) return known2;
+        long value = 0;
+        IntPtr h = Native.OpenProcess(0x1000, false, pid); // PROCESS_QUERY_LIMITED_INFORMATION
+        if (h != IntPtr.Zero)
+        {
+            long creation, exit, kernel, user;
+            if (Native.GetProcessTimes(h, out creation, out exit, out kernel, out user)) value = creation;
+            Native.CloseHandle(h);
+        }
+        cache[pid] = value;
+        return value;
     }
 
     static string ResolveExe()

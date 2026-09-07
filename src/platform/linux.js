@@ -8,6 +8,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { decodePng } from '../image/png.js';
 import { loadIcon, makeIcon, writePngSet } from '../icon.js';
+import { disambiguate } from '../apps.js';
 
 const HOME = os.homedir();
 const DATA_HOME = process.env.XDG_DATA_HOME || path.join(HOME, '.local', 'share');
@@ -410,5 +411,5 @@ export function discover() {
       out.push({ name: d.Name || name.replace(/\.desktop$/, ''), path: path.join(dir, name) });
     }
   }
-  return out.sort((a, b) => a.name.localeCompare(b.name));
+  return disambiguate(out).sort((a, b) => a.name.localeCompare(b.name));
 }

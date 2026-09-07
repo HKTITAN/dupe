@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { loadIcon, makeIcon, writeIcoFile, writePng } from '../icon.js';
 import { selfCommand } from '../schedule.js';
 import { EMBEDDED } from '../embedded.js';
+import { disambiguate } from '../apps.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 import { DUPE_HOME } from '../store.js';
@@ -260,6 +261,13 @@ export function build(app, opts, log = () => {}) {
   const csFile = path.join(dir, 'launcher.cs');
   fs.writeFileSync(csFile, src);
   const exe = path.join(dir, `${opts.label}.exe`);
+  // Asked again here. The caller checked a second ago and has since resolved
+  // the app, pulled its icon out of the executable and recoloured it — and
+  // quitting an app then reopening it is how people restart one, which is
+  // exactly the gesture that fires a rebuild.
+  if (!opts.force && running({ launcher: exe })) {
+    throw new Error(`"${opts.label}" was opened while dupe was building it. Close it and try again.`);
+  }
   killLauncher(exe);
   const r = spawnSync(csc, ['/nologo', '/target:winexe', '/optimize+', `/win32icon:${ico}`, `/out:${exe}`, csFile], { encoding: 'utf8' });
   if (r.status !== 0) throw new Error(`csc failed:\n${r.stdout}${r.stderr}`);
@@ -402,5 +410,5 @@ export function discover() {
     seen.add(exe.toLowerCase());
     out.push({ name: path.basename(exe, '.exe'), path: exe });
   }
-  return out.sort((a, b) => a.name.localeCompare(b.name));
+  return disambiguate(out).sort((a, b) => a.name.localeCompare(b.name));
 }

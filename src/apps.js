@@ -177,6 +177,24 @@ export const APPS = [
   },
 ];
 
+/**
+ * Two installs of one app carry one name — per-user and machine-wide on
+ * Windows, /Applications and ~/Applications on macOS — and a name is what
+ * `dupe add <name>` resolves and what the profile id is derived from. Left
+ * alone, the second install would find the first's profile record and adopt
+ * its data directory: two profiles, one login. So a repeated name is
+ * qualified by where it lives, and stays distinguishable.
+ */
+export function disambiguate(found) {
+  const counts = new Map();
+  for (const f of found) counts.set(f.name, (counts.get(f.name) || 0) + 1);
+  return found.map((f) => {
+    if (counts.get(f.name) < 2) return f;
+    const parent = path.basename(path.dirname(path.dirname(f.path))) || path.basename(path.dirname(f.path));
+    return { ...f, name: `${f.name} (${parent})` };
+  });
+}
+
 export function findApp(id) {
   const key = String(id).toLowerCase();
   return APPS.find((a) => a.id === key || a.name.toLowerCase() === key) || null;

@@ -19,6 +19,7 @@ import { largestFromIcns } from '../image/icns.js';
 import { loadIcon, makeIcon, writeIcnsFile, writePng } from '../icon.js';
 import { selfCommand } from '../schedule.js';
 import { LOG_FILE } from '../store.js';
+import { disambiguate } from '../apps.js';
 
 const PB = '/usr/libexec/PlistBuddy';
 const APPS_DIRS = ['/Applications', path.join(os.homedir(), 'Applications')];
@@ -449,5 +450,5 @@ export function discover() {
       out.push({ name: name.replace(/\.app$/, ''), path: bundle });
     }
   }
-  return out.sort((a, b) => a.name.localeCompare(b.name));
+  return disambiguate(out).sort((a, b) => a.name.localeCompare(b.name));
 }

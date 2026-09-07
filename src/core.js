@@ -25,7 +25,13 @@ export async function backend() {
  */
 export function resolveApp(spec, be = null) {
   const preset = findApp(spec);
-  if (preset) return preset;
+  // A preset is only the answer if the app it describes is actually here.
+  // Its paths are a list of the layouts dupe knows, and they miss some — a
+  // machine-wide Cursor, a distro's own desktop id — and discovery finds
+  // those. Returning the preset regardless meant `dupe list` advertised
+  // "Also on this machine: Cursor" and `dupe add Cursor` then said Cursor
+  // wasn't installed, about the same binary.
+  if (preset && (!be || !be.locate || safeLocate(be, preset))) return preset;
   if (spec && fs.existsSync(spec)) return customApp(spec);
   if (be && be.discover) {
     const want = slug(spec);
@@ -33,7 +39,13 @@ export function resolveApp(spec, be = null) {
     try { hit = be.discover().find((o) => slug(o.name) === want); } catch { /* fall through to the error */ }
     if (hit) return customApp(hit.path, hit.name);
   }
+  // The CLI adds where it comes from; this just says which app it means.
+  if (preset) throw new Error(`${preset.name} isn't installed here, and dupe found nothing on this machine by that name.`);
   throw new Error(`"${spec}" is not a preset, an app on this machine, or a path that exists. dupe list shows what's here.`);
+}
+
+function safeLocate(be, app) {
+  try { return be.locate(app); } catch { return null; }
 }
 
 // A name ends up in `export NAME=...` in the macOS launcher and in a
@@ -101,6 +113,11 @@ export function prepare(app, profileName, values, store, existing) {
   if (!iconFile && existing && existing.iconFile && fs.existsSync(existing.iconFile) && values.icon !== '') iconFile = existing.iconFile;
   return {
     profile, label, color, treatment,
+    // Carried through so the backend can ask again immediately before it
+    // replaces the launcher: between the caller's check and that moment it
+    // has resolved the app and recoloured an icon, and quitting an app then
+    // reopening it is how people restart one.
+    force: !!values.force,
     dataDir: (existing && existing.dataDir) || profileDataDir(app.id, profile),
     extraArgs: values.arg && values.arg.length ? values.arg : (existing && existing.extraArgs) || [],
     extraEnv: checkEnv(values.env && values.env.length ? parseEnv(values.env) : (existing && existing.extraEnv) || {}),
@@ -168,6 +185,15 @@ export async function state() {
   try {
     const known = new Set(apps.map((a) => a.found && path.resolve(a.found).toLowerCase()).filter(Boolean));
     others = (be.discover ? be.discover() : []).filter((o) => !known.has(path.resolve(o.path).toLowerCase()));
+    // A preset whose paths missed this machine's layout is still that app.
+    // Credit the preset with what discovery found rather than printing
+    // "not installed" directly above the thing it did not find.
+    for (const app of apps) {
+      if (app.found) continue;
+      const hit = others.find((o) => slug(o.name) === app.id);
+      if (hit) { app.found = hit.path; app.path = hit.path; app.viaDiscovery = true; }
+    }
+    others = others.filter((o) => !apps.some((a) => a.viaDiscovery && a.path === o.path));
   } catch { /* discovery is a convenience */ }
 
   return {
@@ -196,6 +222,13 @@ export async function add(appSpec, profileName, values = {}, log = () => {}) {
   const app = resolveApp(appSpec, be);
   const store = loadStore();
   const existing = store.profiles.find((p) => p.app === app.id && p.profile === slug(profileName));
+  // Two installs of the same app — per-user and machine-wide, /Applications
+  // and ~/Applications — carry the same name and so the same id. Inheriting
+  // the other one's record would hand both profiles the same data directory,
+  // which is the single thing dupe exists to keep apart.
+  if (existing && app.custom && existing.source && path.resolve(existing.source) !== path.resolve(app.source || '')) {
+    throw new Error(`${app.id}/${slug(profileName)} already belongs to ${existing.source}. Give this one a different profile name, or remove that one first.`);
+  }
   refuseIfOpen(be, existing, values);
   const opts = prepare(app, profileName, values, store, existing);
   log(`${app.name} · ${opts.profile}  "${opts.label}"  ${opts.color}`);
