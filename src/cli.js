@@ -13,7 +13,7 @@ const HELP = `dupe ${VERSION} — run any desktop app as several isolated, colou
 
 Usage
   dupe list                      Apps found on this machine and profiles built so far
-  dupe status [app] [profile]    Whether each profile is level with the app it copies
+  dupe status [app] [profile]    Whether each profile is level; name one to see what it isolates
   dupe install <app>             Install the stock app itself, if it isn't here yet
   dupe add <app> [profile]       Build a profile (e.g. dupe add claude work; profile defaults to work)
   dupe remove <app> <profile>    Remove a profile's launcher (keeps its data unless --purge)
@@ -250,7 +250,14 @@ async function showLog() {
 async function status(rest, values) {
   const s = await upd.check({ app: rest[0], profile: rest[1] });
   if (values.json) { console.log(JSON.stringify(s, null, 2)); return 0; }
-  if (!s.profiles.length) { console.log('No profiles yet — try: dupe add claude work'); return 0; }
+  if (!s.profiles.length) {
+    console.log(rest[0] ? `No profile ${rest.filter(Boolean).join('/')}. Run dupe list.` : 'No profiles yet — try: dupe add claude work');
+    return 0;
+  }
+  // Naming one profile is a narrower question, so it gets a fuller answer:
+  // what this profile actually keeps to itself. That is the promise the tool
+  // makes, and until now there was no way to look at it.
+  if (rest[0] && rest[1] && s.profiles.length === 1) return detail(s.profiles[0]);
   for (const p of s.profiles) {
     const mark = p.state === 'missing' ? dim('·') : swatch(p.color, { filled: p.state === 'current' });
     const note = p.state === 'current' ? dim(p.version ? `current · ${p.version}` : 'current')
@@ -325,6 +332,45 @@ async function update(rest, values, log) {
 }
 
 const ago = (iso) => (iso ? String(iso).replace('T', ' ').slice(0, 16) : null);
+
+/** Everything one profile keeps to itself, and what it is a copy of. */
+async function detail(summary) {
+  const { loadStore } = await import('./store.js');
+  const rec = loadStore().profiles.find((p) => p.app === summary.app && p.profile === summary.profile);
+  if (!rec) { console.log('That profile is no longer in the store.'); return 1; }
+  const line = (k, v) => v && console.log(`  ${dim(k.padEnd(12))} ${v}`);
+
+  console.log(`${swatch(rec.color, { filled: summary.state === 'current' })} ${bold(rec.label)}   ${dim(`${rec.app}/${rec.profile}`)}`);
+  console.log('');
+  line('separate', `${rec.dataDir}${dim('   ← the login, the history, everything it stores')}`);
+  // Some apps keep state outside the Chromium profile, and the preset pins
+  // that too. It is the difference between "mostly separate" and separate,
+  // so it belongs here rather than only in the README.
+  const preset = upd.appOf(rec);
+  const env = { ...(preset.env ? preset.env(rec.dataDir) : {}), ...(rec.extraEnv || {}) };
+  for (const [k, v] of Object.entries(env)) line('', `${v}${dim(`   ← ${k}`)}`);
+  for (const a of (preset.args ? preset.args(rec.dataDir) : [])) line('', `${a.replace(/^--[^=]+=/, '')}${dim(`   ← ${(/^--[^=]+/.exec(a) || [''])[0]}`)}`);
+  line('launcher', rec.launcher || rec.bundle || rec.desktop);
+  if (rec.shortcut) line('start menu', rec.shortcut);
+  if (rec.aumid) line('taskbar id', rec.aumid);
+  if (rec.bundleId) line('bundle id', rec.bundleId);
+  if (rec.wmClass) line('wm class', rec.wmClass);
+  if ((rec.extraArgs || []).length) line('extra flags', rec.extraArgs.join(' '));
+  console.log('');
+  line('copy of', `${summary.source || rec.source}${summary.version ? dim(`   ${summary.version}`) : ''}`);
+  line('icon', `${ink(rec.color, rec.color)} ${dim(`${colorNameOf(rec.color)} · ${rec.treatment}${rec.iconFile ? ' · your own icon' : ''}`)}`);
+  line('built', `${ago(rec.builtAt)}${rec.builtBy ? dim(`   by dupe ${rec.builtBy}`) : ''}`);
+  console.log('');
+  console.log(summary.state === 'current' ? `  ${dim('Level with the app it copies.')}`
+    : summary.state === 'missing' ? `  ${rec.appName} isn't installed here any more.`
+      : `  Behind — ${summary.why || 'the app has changed'}. ${dim('dupe update brings it level.')}`);
+  return 0;
+}
+
+function colorNameOf(hex) {
+  const name = ORDER.find((n) => NAMED[n].toLowerCase() === String(hex).toLowerCase());
+  return name || 'custom';
+}
 
 async function autoupdate(rest, values) {
   const action = (rest[0] || 'status').toLowerCase();

@@ -65,6 +65,7 @@ Either way there are no runtime dependencies: the image work (PNG, ICO, ICNS, PE
 ```
 dupe list                      Apps found on this machine and profiles built so far
 dupe status                    Whether each profile is level with the app it copies
+dupe status <app> <profile>    What that one profile keeps to itself
 dupe install <app>             Install the stock app itself, if it isn't here yet
 dupe add <app> [profile]       Build a profile            dupe add claude   (profile: work)
 dupe add <app> <profile> --color green --label "Claude · Acme"
