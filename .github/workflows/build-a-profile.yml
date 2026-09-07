@@ -55,6 +55,26 @@ jobs:
           /usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$app/Contents/Info.plist"
           codesign --verify --deep --strict "$app" && echo "signature verifies"
 
+      - name: macOS — the launcher's own fingerprint agrees with the one dupe recorded
+        if: runner.os == 'macOS'
+        # The whole self-heal rests on this: the launcher recomputes the
+        # fingerprint in shell, with PlistBuddy and stat, and dupe computes it
+        # in JavaScript. If they ever disagree the clone would rebuild itself
+        # on every single launch, which is worse than never rebuilding.
+        run: |
+          app="/Applications/Chrome CI.app"
+          exe="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")"
+          launcher="$app/Contents/MacOS/$exe"
+          sed -n '/^_dupe_stamp() {/,/^}/p' "$launcher" > /tmp/stamp.sh
+          . /tmp/stamp.sh
+          recorded="$(sed -n "s/^BUILT_FROM='\(.*\)'$//p" "$launcher")"
+          now="$(_dupe_stamp '/Applications/Google Chrome.app')"
+          echo "shell:  $now"
+          echo "dupe:   $recorded"
+          test -n "$recorded" || { echo "nothing was recorded"; exit 1; }
+          test "$now" = "$recorded" || { echo "they disagree — every launch would rebuild"; exit 1; }
+          echo "they agree, so opening the profile starts it rather than rebuilding it"
+
       - name: linux — the entry points at the stock binary
         if: runner.os == 'Linux'
         run: |
@@ -64,7 +84,12 @@ jobs:
           grep -q 'StartupWMClass=' "$entry" || { echo "no StartupWMClass, so the dock will not match it"; exit 1; }
           grep -q -- '--user-data-dir=' "$entry" || { echo "not actually isolated"; exit 1; }
           test -f "$HOME/.local/share/icons/hicolor/256x256/apps/dupe-chrome-ci.png" || { echo "no icon installed into the theme"; exit 1; }
-          command -v desktop-file-validate >/dev/null && desktop-file-validate "$entry" && echo "the entry validates"
+          ls -l "$HOME/.local/share/icons/hicolor/"*"/apps/dupe-chrome-ci.png"
+          if command -v desktop-file-validate >/dev/null; then
+            desktop-file-validate "$entry" && echo "the entry validates"
+          else
+            echo "desktop-file-validate isn't here; skipped"
+          fi
 
       - name: rebuilding a level profile changes nothing
         run: |
