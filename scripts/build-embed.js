@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const files = {
   'win32-launcher.cs': path.join(root, 'src', 'platform', 'win32-launcher.cs'),
+  'win32-autoupdate.cs': path.join(root, 'src', 'platform', 'win32-autoupdate.cs'),
   'docs/index.html': path.join(root, 'docs', 'index.html'),
   'docs/dupe-image.js': path.join(root, 'docs', 'dupe-image.js'),
   'docs/android.md': path.join(root, 'docs', 'android.md'),

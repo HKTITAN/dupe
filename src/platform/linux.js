@@ -206,3 +206,31 @@ export function remove(record, { purge = false } = {}, log = () => {}) {
 export function launch(record) {
   spawnSync('gio', ['launch', record.desktop], { stdio: 'ignore' });
 }
+
+/** A fingerprint of the stock app as it is right now: the .desktop entry it
+ *  came from, the command that entry runs, and the size and mtime of both.
+ *  A Linux profile runs the stock binary in place, so what a change means
+ *  here is that the icon and the Exec line are worth refreshing. */
+export function stamp(app) {
+  const found = locate(app);
+  if (!found) return null;
+  const exec = String(found.exec || '').trim();
+  const first = exec.startsWith('"') ? exec.slice(1, exec.indexOf('"', 1)) : exec.split(/\s+/)[0];
+  const bits = [exec];
+  let mtimeMs = 0;
+  for (const file of [found.desktop, path.isAbsolute(first || '') ? first : null]) {
+    if (!file) continue;
+    try {
+      const st = fs.statSync(file);
+      bits.push(`${path.basename(file)}:${Math.floor(st.mtimeMs / 1000)}:${st.size}`);
+      mtimeMs = Math.max(mtimeMs, st.mtimeMs);
+    } catch { /* unreadable is as good as unchanged */ }
+  }
+  return { path: found.desktop || first || exec, version: null, id: bits.join('|'), mtimeMs };
+}
+
+/** Never busy: a Linux profile is a .desktop entry pointing at the stock
+ *  binary, so rewriting it and its icons leaves running windows alone. */
+export function running() {
+  return false;
+}

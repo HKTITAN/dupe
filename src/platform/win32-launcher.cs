@@ -14,7 +14,13 @@
 //      own icon and its own pin, even though the process, the binary and the
 //      AppUserModelID the app sets on itself are all shared with the stock
 //      install.
-//   4. `--install-shortcut` writes the Start Menu .lnk with the same
+//   4. On the way out, if the stock app has moved since this launcher was
+//      built — a Store package lands in a new versioned folder on every
+//      update, Squirrel in a new app-<version> — it asks dupe to re-derive
+//      the icon. The app itself needed no help: step 1 already found the
+//      new one. So a Windows profile is never out of date, and its icon
+//      catches up the first time you close it.
+//   5. `--install-shortcut` writes the Start Menu .lnk with the same
 //      AppUserModelID so pinning from Start and pinning from the taskbar
 //      land on the same group.
 using System;
@@ -38,6 +44,8 @@ static class Config
     public const string MsixAlias = @"@MSIX_ALIAS@";
     public const string ProfileDir = @"@PROFILE_DIR@";
     public const string Arguments = @"@ARGUMENTS@";
+    public const string DupeCommand = @"@DUPE_COMMAND@";
+    public const string DupeArguments = @"@DUPE_ARGUMENTS@";
     public static readonly string[] EnvKeys = new string[] { @ENV_KEYS@ };
     public static readonly string[] EnvValues = new string[] { @ENV_VALUES@ };
     public static readonly string[] EnvMkdirs = new string[] { @ENV_MKDIRS@ };
@@ -164,7 +172,29 @@ static class Launcher
         }
 
         TagWindowsUntilExit(root.Id);
+        RefreshIfMoved();
         return 0;
+    }
+
+    // The app is always current — ResolveExe() finds wherever it lives now —
+    // but the icon and label were taken from wherever it lived when this
+    // launcher was compiled. If those are no longer the same place, hand over
+    // to dupe on the way out; it re-derives the icon, and does nothing at all
+    // if it decides nothing really changed. Never blocks a launch, and never
+    // touches a profile that is still open, because by here ours has closed.
+    static void RefreshIfMoved()
+    {
+        if (Config.DupeCommand.Length == 0) return;
+        string exe = ResolveExe();
+        if (exe == null || string.Equals(exe, Config.ExePath, StringComparison.OrdinalIgnoreCase)) return;
+        try
+        {
+            ProcessStartInfo psi = new ProcessStartInfo(Config.DupeCommand, Config.DupeArguments);
+            psi.UseShellExecute = false;
+            psi.CreateNoWindow = true;
+            Process.Start(psi);
+        }
+        catch (Exception) { }
     }
 
     // Launch candidates, best first: the resolved binary, then the package's

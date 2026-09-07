@@ -180,6 +180,10 @@
   @keyframes arrive { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: none; } }
   @media (prefers-reduced-motion: reduce) { .prow.new { animation: fade 160ms; } @keyframes fade { from { opacity: 0; } to { opacity: 1; } } .btn::before, .btn > *, .swatch i, .mini img { transition: none; } }
 
+  .autoup { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin: 0 0 12px; padding: 11px 14px; border: 2px dashed var(--swan); border-radius: var(--radius-tile); }
+  .autoup label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+  .autoup .grow { flex: 1 1 auto; }
+
   .notice { padding: 12px 14px; border-radius: var(--radius-tile); background: var(--polar); font-size: 15px; }
   .notice.ok { background: #e6f6da; color: #2a5a00; }
   .notice.err { background: #ffe8e8; color: #8a1616; }
@@ -293,6 +297,11 @@
 
       <div>
         <h3>Your profiles</h3>
+        <div class="autoup" id="autoup" hidden>
+          <label class="small"><input type="checkbox" id="autoup-on"> Keep them up to date</label>
+          <span class="small muted grow" id="autoup-detail"></span>
+          <button class="btn secondary sm" type="button" id="autoup-now"><span>Check now</span></button>
+        </div>
         <div class="plist" id="plist"></div>
       </div>
     </div>
@@ -623,6 +632,55 @@ function renderProfiles(fresh) {
   }
 }
 
+/* Auto-update: profiles catch themselves up when opened, and this schedules
+   the same work in the background so they are already current. */
+function renderAutoupdate(updates) {
+  const box = $('#autoup'), toggle = $('#autoup-on'), detail = $('#autoup-detail');
+  const a = live.autoupdate || {};
+  box.hidden = !live.profiles.length || !a.supported;
+  toggle.checked = !!a.enabled;
+  const behind = updates ? updates.stale : null;
+  const parts = [];
+  if (a.enabled) parts.push(`Checking ${a.detail || ''}`.trim().replace(/\s+/g, ' '));
+  else parts.push('Each profile still catches up when you open it.');
+  if (behind) parts.push(`${behind} behind right now.`);
+  detail.textContent = parts.join(' · ');
+}
+
+async function refreshUpdates() {
+  try {
+    const r = await fetch('/api/updates');
+    if (r.ok) renderAutoupdate(await r.json());
+  } catch { /* the toggle still works without a count */ }
+}
+
+function wireAutoupdate() {
+  $('#autoup-on').addEventListener('change', async (e) => {
+    const on = e.target.checked;
+    e.target.disabled = true;
+    try {
+      const r = await api('/api/autoupdate', { on });
+      live.autoupdate = r.autoupdate;
+      renderAutoupdate();
+    } catch (err) { e.target.checked = !on; alert(`Couldn't change that. ${err.message}`); }
+    e.target.disabled = false;
+    refreshUpdates();
+  });
+  $('#autoup-now').addEventListener('click', async (e) => {
+    const btn = e.currentTarget, span = btn.querySelector('span'), was = span.textContent;
+    btn.disabled = true; span.textContent = 'Checking…';
+    try {
+      const r = await api('/api/update', {});
+      live.profiles = r.profiles;
+      renderApps(); renderProfiles();
+      span.textContent = r.result.updated.length ? `Updated ${r.result.updated.length}`
+        : r.result.deferred.length ? 'Open — later' : 'All current';
+    } catch (err) { span.textContent = 'Failed'; alert(`Couldn't update. ${err.message}`); }
+    setTimeout(() => { span.textContent = was; btn.disabled = false; }, 2200);
+    refreshUpdates();
+  });
+}
+
 async function connect() {
   const status = $('#status'), text = $('#status-text');
   try {
@@ -634,7 +692,7 @@ async function connect() {
     const os = { win32: 'Windows', darwin: 'macOS', linux: 'Linux' }[live.platform] || live.platform;
     text.textContent = `Connected · ${os}`;
     $('#live').hidden = false;
-    renderApps(); renderProfiles();
+    renderApps(); renderProfiles(); renderAutoupdate(); wireAutoupdate(); refreshUpdates();
     // Deep link: ?app=claude opens the builder for that app.
     const wanted = new URLSearchParams(location.search).get('app');
     if (wanted && (wanted === '__custom' || live.apps.some((a) => a.id === wanted && a.found))) pickApp(wanted);

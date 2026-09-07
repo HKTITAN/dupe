@@ -55,3 +55,6 @@ export function slug(s) {
 export function titleCase(s) {
   return String(s).split(/[\s_-]+/).filter(Boolean).map((w) => w[0].toUpperCase() + w.slice(1)).join(' ');
 }
+
+/** Where the background updater writes what it did. */
+export const LOG_FILE = path.join(DUPE_HOME, 'logs', 'autoupdate.log');

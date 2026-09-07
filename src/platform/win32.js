@@ -8,6 +8,7 @@ import path from 'node:path';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { loadIcon, makeIcon, writeIcoFile, writePng } from '../icon.js';
+import { selfCommand } from '../schedule.js';
 import { EMBEDDED } from '../embedded.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -95,7 +96,7 @@ export function isElectron(exe) {
     fs.existsSync(path.join(path.dirname(exe), 'resources', 'app'));
 }
 
-function findCsc() {
+export function findCsc() {
   const win = process.env.WINDIR || 'C:\\Windows';
   for (const arch of ['Framework64', 'Framework']) {
     const base = path.join(win, 'Microsoft.NET', arch);
@@ -147,7 +148,11 @@ export function build(app, opts, log = () => {}) {
   // running from a checkout, or from the embedded copy in a compiled binary.
   const tplPath = path.join(here, 'win32-launcher.cs');
   const template = fs.existsSync(tplPath) ? fs.readFileSync(tplPath, 'utf8') : EMBEDDED['win32-launcher.cs'];
+  // What the launcher runs on quit when the stock app has moved.
+  const dupe = selfCommand(['update', app.id, opts.profile, '--quiet']);
   const src = template
+    .replace('@DUPE_COMMAND@', dupe.command.replace(/"/g, '""'))
+    .replace('@DUPE_ARGUMENTS@', dupe.args.map(quoteArg).join(' ').replace(/"/g, '""'))
     .replace('@LABEL@', opts.label.replace(/"/g, '""'))
     .replace('@AUMID@', aumid)
     .replace('@EXE_PATH@', found.exe.replace(/"/g, '""'))
@@ -194,4 +199,27 @@ export function remove(record, { purge = false } = {}, log = () => {}) {
 
 export function launch(record) {
   spawn(record.launcher, [], { detached: true, stdio: 'ignore' }).unref();
+}
+
+/** A fingerprint of the stock app as it is right now. An MSIX package's full
+ *  name carries its version, which is exactly the signal we want; classic
+ *  installs get the resolved path plus the executable's size and mtime. */
+export function stamp(app) {
+  const found = locate(app);
+  if (!found) return null;
+  let mtimeMs = 0, size = 0;
+  try { const st = fs.statSync(found.exe); mtimeMs = st.mtimeMs; size = st.size; } catch { /* aliases deny stat */ }
+  const version = found.kind === 'msix' ? (/_(\d+(?:\.\d+)*)_/.exec(found.packageFullName) || [])[1] || null : null;
+  const id = found.kind === 'msix' ? `msix:${found.packageFullName}` : `${found.exe}|${Math.floor(mtimeMs / 1000)}:${size}`;
+  return { path: found.exe, version, id, mtimeMs };
+}
+
+/** True while the profile's launcher is running. Rebuilding has to replace
+ *  the .exe, which means stopping it and leaving the app it was tagging
+ *  without its taskbar identity, so the background updater waits instead. */
+export function running(record) {
+  if (!record.launcher) return false;
+  const name = path.basename(record.launcher);
+  const r = spawnSync('tasklist', ['/FI', `IMAGENAME eq ${name}`, '/NH'], { encoding: 'utf8' });
+  return r.status === 0 && r.stdout.toLowerCase().includes(name.toLowerCase());
 }

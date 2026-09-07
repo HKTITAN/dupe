@@ -7,6 +7,9 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import * as core from './core.js';
+import * as upd from './update.js';
+import * as schedule from './schedule.js';
+import * as install from './install.js';
 import { loadIcon, makeIcon } from './icon.js';
 import { encodePng } from './image/png.js';
 import { resize } from './image/resize.js';
@@ -101,7 +104,12 @@ async function appIcon(source, profileHex) {
 async function api(req, res, url) {
   if (!sameOrigin(req)) return json(res, 403, { error: 'Cross-origin requests are not allowed.' });
   const p = url.pathname;
-  if (req.method === 'GET' && p === '/api/state') return json(res, 200, await core.state());
+  if (req.method === 'GET' && p === '/api/state') {
+    const s = await core.state();
+    s.apps = await install.annotate(s.apps);
+    return json(res, 200, s);
+  }
+  if (req.method === 'GET' && p === '/api/updates') return json(res, 200, await upd.check({ app: url.searchParams.get('app') || undefined }));
   if (req.method === 'GET' && (p.startsWith('/api/app-icon/') || p === '/api/icon')) {
     const source = p === '/api/icon' ? url.searchParams.get('source') : decodeURIComponent(p.split('/')[3]);
     try {
@@ -129,13 +137,16 @@ async function api(req, res, url) {
     return json(res, 404, { error: 'no icon' });
   }
   if (req.method !== 'POST') return json(res, 405, { error: 'Method not allowed' });
-  // Development only: docs/banner.html posts its rendered PNG here when the
-  // server was started with DUPE_DEV_BANNER=1. Inert otherwise.
-  if (p === '/api/dev/banner') {
+  // Development only: docs/banner.html and docs/cheatsheet.html post their
+  // rendered PNGs here when the server was started with DUPE_DEV_BANNER=1.
+  // Inert otherwise, and it only ever writes one of the artwork files in docs/.
+  if (p === '/api/dev/png') {
     if (!process.env.DUPE_DEV_BANNER) return json(res, 404, { error: 'Unknown endpoint' });
+    const name = url.searchParams.get('name') || 'banner.png';
+    if (!/^(banner|cheatsheet)\.png$/.test(name)) return json(res, 400, { error: 'Not one of the artwork files.' });
     const chunks = [];
     await new Promise((resolve, reject) => { req.on('data', (c) => { chunks.push(c); if (chunks.reduce((n, b) => n + b.length, 0) > 2e7) req.destroy(); }); req.on('end', resolve); req.on('error', reject); });
-    const out = path.join(DOCS, 'banner.png');
+    const out = path.join(DOCS, name);
     fs.writeFileSync(out, Buffer.concat(chunks));
     return json(res, 200, { saved: out, bytes: fs.statSync(out).size });
   }
@@ -154,6 +165,18 @@ async function api(req, res, url) {
     if (p === '/api/rebuild') {
       const results = await core.rebuild(body.app, {}, log);
       return json(res, 200, { results, log: lines });
+    }
+    if (p === '/api/update') {
+      const result = await upd.update({ app: body.app, profile: body.profile, all: !!body.all, force: !!body.force }, log);
+      return json(res, 200, { result, summary: upd.summarize(result), log: lines, profiles: loadStore().profiles });
+    }
+    if (p === '/api/install') {
+      const r = await install.install(body.app, { via: body.via }, log);
+      return json(res, 200, { ok: true, opened: r.opened || null, already: !!r.already, log: lines });
+    }
+    if (p === '/api/autoupdate') {
+      const status = body.on ? await schedule.enable({ every: body.every }) : body.on === false ? schedule.disable() : schedule.status();
+      return json(res, 200, { autoupdate: status });
     }
     if (p === '/api/open') {
       const record = await core.open(body.app, body.profile);

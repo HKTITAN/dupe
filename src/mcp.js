@@ -5,6 +5,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import * as core from './core.js';
+import * as upd from './update.js';
+import * as schedule from './schedule.js';
+import * as install from './install.js';
 import { NAMED, ORDER, resolveColor } from './palette.js';
 import { loadIcon, makeIcon, writeIcoFile, writeIcnsFile, writePng } from './icon.js';
 
@@ -46,8 +49,57 @@ const TOOLS = [
     },
   },
   {
+    name: 'install_app',
+    description: 'Install the stock app itself on this computer, for an app dupe knows but that is not installed yet. Prefers the package manager whose manifest the vendor owns (winget, Homebrew cask, Flathub); falls back to the vendor\'s own download endpoint, and otherwise opens their download page in a browser. This runs an installer on the user\'s machine, so ask them first and pass confirm only once they have said yes. Call list_apps first to see what is missing and how it would be installed.',
+    inputSchema: {
+      type: 'object',
+      required: ['app', 'confirm'],
+      properties: {
+        app: { type: 'string', description: 'Preset id from list_apps' },
+        confirm: { type: 'boolean', description: 'Must be true. Set it only after the user has agreed to install this app.' },
+        via: { type: 'string', enum: ['winget', 'brew', 'flatpak', 'download', 'page'], description: 'Force one route. Default: the best available.' },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'check_updates',
+    description: 'Which profiles have fallen behind the app they wrap, and which stock apps are no longer installed. Changes nothing. Use before update_profiles to explain what would happen.',
+    inputSchema: {
+      type: 'object',
+      properties: { app: { type: 'string', description: 'Limit to this preset id' }, profile: { type: 'string', description: 'Limit to this profile of that app' } },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'update_profiles',
+    description: 'Rebuild the profiles whose stock app has changed since they were built, and only those. A profile that is open right now is left alone and reported as deferred, unless force is true. This is the safe thing to call after an app updates itself.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        app: { type: 'string', description: 'Limit to this preset id' },
+        profile: { type: 'string', description: 'Limit to this profile of that app' },
+        all: { type: 'boolean', description: 'Rebuild every profile, changed or not' },
+        force: { type: 'boolean', description: 'Rebuild even a profile that is open; it will be restarted' },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'autoupdate',
+    description: 'Read or set the background job that keeps profiles current on this computer: a launchd agent on macOS, a Scheduled Task on Windows, a systemd user timer on Linux. Profiles also catch themselves up when opened, so this is about doing it before you notice rather than instead.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['status', 'on', 'off'], description: 'Default status' },
+        every: { type: 'string', description: 'With on: how often to check, 15m to 24h, e.g. "6h". Default 6h.' },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'rebuild_profiles',
-    description: 'Rebuild every profile (or only one app\'s) from the current stock app. Needed on macOS after the stock app updates; harmless elsewhere.',
+    description: 'Rebuild every profile (or only one app\'s) whether or not anything changed. Prefer update_profiles, which does only the ones that need it; this is for forcing the issue.',
     inputSchema: { type: 'object', properties: { app: { type: 'string', description: 'Limit to this preset id' } }, additionalProperties: false },
   },
   {
@@ -85,7 +137,16 @@ async function callTool(name, a = {}) {
   switch (name) {
     case 'list_apps': {
       const s = await core.state();
+      s.apps = await install.annotate(s.apps);
       return { ...text(JSON.stringify(s, null, 2)), structuredContent: s };
+    }
+    case 'install_app': {
+      if (a.confirm !== true) return fail('install_app needs confirm: true, and only after the user has agreed to install this app.');
+      const r = await install.install(a.app, { via: a.via }, log);
+      const done = r.already ? `${r.app.name} was already installed at ${r.installed}.`
+        : r.opened ? `Opened ${r.opened} — the user installs it from there, then dupe can profile it.`
+        : `Installed ${r.app.name} via ${r.step.via}.`;
+      return { ...text(`${lines.join('\n')}${lines.length ? '\n\n' : ''}${done}`), structuredContent: { app: r.app.id, via: r.step && r.step.via, opened: r.opened || null, already: !!r.already } };
     }
     case 'add_profile': {
       const record = await core.add(a.app, a.profile, { color: a.color, label: a.label, treatment: a.treatment, icon: a.icon, arg: a.args, env: a.env ? Object.entries(a.env).map(([k, v]) => `${k}=${v}`) : undefined }, log);
@@ -98,6 +159,26 @@ async function callTool(name, a = {}) {
     case 'rebuild_profiles': {
       const results = await core.rebuild(a.app, {}, log);
       return { ...text(results.length ? lines.join('\n') : 'Nothing to rebuild.'), structuredContent: { results } };
+    }
+    case 'check_updates': {
+      const r = await upd.check({ app: a.app, profile: a.profile });
+      const rows = r.profiles.map((p) => `${p.state.padEnd(8)} ${p.label}${p.version ? `  (${p.appName} ${p.version})` : ''}${p.running ? '  — open right now' : ''}`);
+      const summary = r.profiles.length ? `${r.stale} behind, ${r.current} current${r.missing ? `, ${r.missing} whose app is gone` : ''}.` : 'No profiles yet.';
+      return { ...text([...rows, '', summary].join('\n')), structuredContent: r };
+    }
+    case 'update_profiles': {
+      const r = await upd.update({ app: a.app, profile: a.profile, all: !!a.all, force: !!a.force }, log);
+      return { ...text(`${lines.join('\n')}${lines.length ? '\n\n' : ''}${upd.summarize(r)}`), structuredContent: r };
+    }
+    case 'autoupdate': {
+      const action = a.action || 'status';
+      const s = action === 'on' ? await schedule.enable({ every: a.every })
+        : action === 'off' ? schedule.disable()
+        : schedule.status();
+      const line = s.enabled
+        ? `Auto-update is on — ${s.detail || schedule.humanInterval(s.everyMinutes)} (${s.mechanism}).`
+        : 'Auto-update is off. Profiles still catch up when they are opened.';
+      return { ...text(line), structuredContent: s };
     }
     case 'open_profile': {
       const record = await core.open(a.app, a.profile);
@@ -150,7 +231,7 @@ async function handle(line) {
     let result;
     switch (method) {
       case 'initialize':
-        result = { protocolVersion: params && params.protocolVersion ? params.protocolVersion : PROTOCOL, capabilities: { tools: {} }, serverInfo: SERVER, instructions: 'dupe builds isolated, colour-coded profiles of desktop apps. Call list_apps first; add_profile builds one. Everything runs on this computer; nothing is uploaded.' };
+        result = { protocolVersion: params && params.protocolVersion ? params.protocolVersion : PROTOCOL, capabilities: { tools: {} }, serverInfo: SERVER, instructions: 'dupe builds isolated, colour-coded profiles of desktop apps. Call list_apps first; add_profile builds one; check_updates and update_profiles keep them level with the apps they wrap. Everything runs on this computer; nothing is uploaded.' };
         break;
       case 'ping': result = {}; break;
       case 'tools/list': result = { tools: TOOLS }; break;

@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { APPS, findApp, customApp } from './apps.js';
 import { NAMED, ORDER, resolveColor, nextColor } from './palette.js';
+import * as schedule from './schedule.js';
 import { DUPE_HOME, loadStore, saveStore, upsertProfile, removeProfile, profileDataDir, slug, titleCase } from './store.js';
 
 export async function backend() {
@@ -60,6 +61,17 @@ export function prepare(app, profileName, values, store, existing) {
   };
 }
 
+/** A fingerprint of the stock app as it is right now, recorded on the profile
+ *  so `dupe update` can tell later whether the app moved on without it. */
+export function stampId(be, app) {
+  try {
+    const s = be.stamp ? be.stamp(app) : null;
+    return s ? s.id : null;
+  } catch {
+    return null;
+  }
+}
+
 export function hint(record) {
   switch (record.platform) {
     case 'win32': return "It's in the Start Menu; pin it to the taskbar from there.";
@@ -83,6 +95,7 @@ export async function state() {
     apps,
     profiles: store.profiles,
     colors: ORDER.map((name) => ({ name, hex: NAMED[name] })),
+    autoupdate: schedule.status(),
   };
 }
 
@@ -94,8 +107,10 @@ export async function add(appSpec, profileName, values = {}, log = () => {}) {
   const opts = prepare(app, profileName, values, store, existing);
   log(`${app.name} · ${opts.profile}  "${opts.label}"  ${opts.color}`);
   const record = be.build(app, opts, log);
+  if (!record.sourceStamp) record.sourceStamp = stampId(be, app);
   upsertProfile(store, record);
   saveStore(store);
+  schedule.refresh(); // macOS watches the bundles it was built from
   return record;
 }
 
@@ -110,6 +125,7 @@ export async function remove(appSpec, profileName, { purge = false } = {}, log =
   be.remove(record, { purge }, log);
   removeProfile(store, app.id, profile);
   saveStore(store);
+  schedule.refresh();
   return record;
 }
 
@@ -125,6 +141,7 @@ export async function rebuild(appSpec, values = {}, log = () => {}) {
     log(`${app.name} · ${opts.profile}  "${opts.label}"  ${opts.color}`);
     try {
       const record = be.build(app, opts, log);
+      if (!record.sourceStamp) record.sourceStamp = stampId(be, app);
       upsertProfile(store, record);
       saveStore(store);
       results.push({ ok: true, record });
