@@ -27,6 +27,10 @@ import { ORDER, NAMED } from './palette.js';
 // colour and the source file's mtime), and pre-rendered for every installed
 // app at startup so the colour strips appear at once.
 const iconCache = new Map();
+// The decoded source, too: one app is recoloured nine ways for its strip, and
+// pulling the icon out of a .exe's resources or an .icns is the expensive
+// half of that. Keyed by path and mtime, so an app that updates is re-read.
+const sourceCache = new Map();
 const CACHE_DIR = path.join(DUPE_HOME, 'cache', 'icons');
 
 function cacheFile(file, hex) {
@@ -47,6 +51,17 @@ async function warmIcons() {
       }
     }
   } catch { /* warm-up is best effort */ }
+}
+
+function loadSource(file) {
+  let mtime = 0;
+  try { mtime = fs.statSync(file).mtimeMs | 0; } catch { /* aliases deny stat */ }
+  const key = `${file}|${mtime}`;
+  if (!sourceCache.has(key)) {
+    sourceCache.clear(); // one app's icon at a time is all the strips need
+    sourceCache.set(key, loadIcon(file));
+  }
+  return sourceCache.get(key);
 }
 
 function json(res, status, body) {
@@ -104,7 +119,7 @@ async function appIcon(source, profileHex) {
     iconCache.set(key, png);
     return png;
   }
-  let img = loadIcon(file);
+  let img = loadSource(file);
   if (profileHex) img = makeIcon(img, profileHex, 'auto').master;
   const png = encodePng(resize(img, 128, 128));
   iconCache.set(key, png);

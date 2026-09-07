@@ -40,7 +40,23 @@ function globOne(p) {
   return null;
 }
 
+// Two `reg query` processes per package, and the interface asks where every
+// app lives once per palette colour while it warms its icon strips — 180-odd
+// spawns for a dozen apps. The registry does not change between them, so the
+// answer is held briefly. Short enough that an app installed or updated while
+// dupe is running is still noticed.
+const msixCache = new Map();
+const MSIX_TTL = 10_000;
+
 function msixPackages(pattern) {
+  const hit = msixCache.get(pattern);
+  if (hit && Date.now() - hit.at < MSIX_TTL) return hit.value;
+  const value = readMsixPackages(pattern);
+  msixCache.set(pattern, { at: Date.now(), value });
+  return value;
+}
+
+function readMsixPackages(pattern) {
   const r = spawnSync('reg', ['query', REPO_KEY, '/k', '/f', pattern.replace(/\*/g, '*')], { encoding: 'utf8' });
   if (r.status !== 0) return [];
   const rx = new RegExp('^' + pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*') + '$', 'i');

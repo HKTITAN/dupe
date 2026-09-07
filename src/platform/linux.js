@@ -109,9 +109,21 @@ export function locate(app) {
   return null;
 }
 
+// Finding an icon by name means walking every installed theme, which is
+// thousands of directories. Rebuilding several profiles of the same app would
+// otherwise walk them once per profile.
+const iconPaths = new Map();
+
 function findIconFile(nameOrPath) {
   if (!nameOrPath) return null;
   if (path.isAbsolute(nameOrPath)) return fs.existsSync(nameOrPath) ? nameOrPath : null;
+  if (iconPaths.has(nameOrPath)) return iconPaths.get(nameOrPath);
+  const found = searchIconDirs(nameOrPath);
+  iconPaths.set(nameOrPath, found);
+  return found;
+}
+
+function searchIconDirs(nameOrPath) {
   let best = null, bestSize = 0;
   for (const root of ICON_DIRS) {
     if (!fs.existsSync(root)) continue;
