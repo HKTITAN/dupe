@@ -1,0 +1,42 @@
+# The image pipeline and the update logic are pure, so they run anywhere.
+# The point of the matrix is the other half: the platform backends are written
+# on one machine and used on three, and until now nothing but a reader had
+# ever looked at the macOS and Linux ones. Loading them, locating apps and
+# printing the state exercises those paths on every push.
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --test
+        name: unit tests
+
+      # No dependencies to install, so a checkout is a working install.
+      - run: node bin/dupe.js --version
+        name: it knows its own version
+      - run: node bin/dupe.js list
+        name: it can look for apps on this machine
+      - run: node bin/dupe.js status
+        name: it can report on an empty machine
+      - run: node bin/dupe.js colors
+        name: the palette
+
+      # The generated files are committed, so a stale one is a bug.
+      - run: node scripts/build-web.js && node scripts/build-embed.js && git diff --exit-code
+        name: docs/dupe-image.js and src/embedded.js are up to date
+        if: matrix.os == 'ubuntu-latest'

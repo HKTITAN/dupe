@@ -1,0 +1,51 @@
+# Push a tag, get binaries. Bun cross-compiles all five targets from one
+# machine, so this needs no matrix — and it means cutting a release doesn't
+# depend on whoever is doing it having Bun installed.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The existing tag to build binaries for
+        required: true
+
+jobs:
+  binaries:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - run: node --test
+        name: don't ship what doesn't pass
+
+      - run: npm run build:bin
+        name: cross-compile every target
+
+      # The tag is the source of truth for the version; a mismatch means the
+      # bump was forgotten, and shipping it would misname every binary.
+      - name: the tag and package.json agree
+        run: |
+          tag="${{ inputs.tag || github.ref_name }}"
+          pkg="v$(node -p "require('./package.json').version")"
+          test "$tag" = "$pkg" || { echo "tag $tag but package.json says $pkg"; exit 1; }
+
+      - name: attach them to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ inputs.tag || github.ref_name }}"
+          gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --generate-notes --title "$tag"
+          gh release upload "$tag" dist/dupe-* dist/SHA256SUMS.txt --clobber

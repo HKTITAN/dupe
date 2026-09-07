@@ -2,6 +2,7 @@
 
 [![npm](https://img.shields.io/npm/v/%40hktitan%2Fdupe?logo=npm&label=npm)](https://www.npmjs.com/package/@hktitan/dupe)
 [![release](https://img.shields.io/github/v/release/HKTITAN/dupe?label=binaries)](https://github.com/HKTITAN/dupe/releases/latest)
+[![tests](https://img.shields.io/github/actions/workflow/status/HKTITAN/dupe/test.yml?branch=main&label=tests)](https://github.com/HKTITAN/dupe/actions/workflows/test.yml)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 ![One app, as many profiles as you need](docs/banner.png)
