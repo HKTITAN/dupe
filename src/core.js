@@ -4,7 +4,7 @@ import path from 'node:path';
 import { APPS, findApp, customApp } from './apps.js';
 import { NAMED, ORDER, resolveColor, nextColor } from './palette.js';
 import * as schedule from './schedule.js';
-import { DUPE_HOME, loadStore, saveStore, upsertProfile, removeProfile, profileDataDir, slug, titleCase } from './store.js';
+import { DUPE_HOME, commitProfile, commitRemoval, loadStore, profileDataDir, slug, titleCase } from './store.js';
 
 export async function backend() {
   switch (process.platform) {
@@ -34,12 +34,28 @@ export function parseEnv(list) {
 
 const TREATMENTS = new Set(['auto', 'hue', 'ramp-light', 'ramp-dark', 'none']);
 
+// A label becomes a filename, a .desktop Name, a Start Menu shortcut and a
+// macOS bundle name, so what it may contain is the intersection of what all
+// of those accept.
+const ILLEGAL = /[<>:"/\\|?*\u0000-\u001f]/;
+const RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
+
+export function checkLabel(label) {
+  const bad = ILLEGAL.exec(label);
+  if (bad) throw new Error(`A label can't contain ${JSON.stringify(bad[0])} — it becomes a filename. Try --label "${label.replace(ILLEGAL, ' ').replace(/\s+/g, ' ').trim()}".`);
+  if (!label.trim()) throw new Error('A label needs some text in it.');
+  if (label !== label.trim() || label.endsWith('.')) throw new Error("A label can't start or end with a space or a dot.");
+  if (RESERVED.test(label)) throw new Error(`"${label}" is a reserved device name on Windows; pick another label.`);
+  if (label.length > 64) throw new Error(`That label is ${label.length} characters; keep it under 64.`);
+  return label;
+}
+
 export function prepare(app, profileName, values, store, existing) {
   const profile = slug(profileName);
   if (!profile) throw new Error('Profile name must contain a letter or digit.');
   const used = store.profiles.filter((p) => p.app === app.id && p.profile !== profile).map((p) => p.color);
   const color = resolveColor(values.color) || (existing && existing.color) || nextColor(used);
-  const label = values.label || (existing && existing.label) || `${app.name} ${titleCase(profile)}`;
+  const label = checkLabel(values.label || (existing && existing.label) || `${app.name} ${titleCase(profile)}`);
   const treatment = values.treatment || (existing && existing.treatment) || 'auto';
   if (!TREATMENTS.has(treatment)) throw new Error(`Treatment must be one of ${[...TREATMENTS].join(', ')}.`);
   // A custom icon may arrive as a path (--icon) or as base64 PNG data from
@@ -108,23 +124,37 @@ export async function add(appSpec, profileName, values = {}, log = () => {}) {
   log(`${app.name} · ${opts.profile}  "${opts.label}"  ${opts.color}`);
   const record = be.build(app, opts, log);
   if (!record.sourceStamp) record.sourceStamp = stampId(be, app);
-  upsertProfile(store, record);
-  saveStore(store);
+  commitProfile(record);
   schedule.refresh(); // macOS watches the bundles it was built from
   return record;
+}
+
+/** The stored profile for an app spec: a preset id, a path, or the id
+ *  `dupe list` prints. Looked up in the store rather than on disk, so a
+ *  profile of an app that has since been uninstalled or moved can still be
+ *  removed and opened. */
+export function findProfile(store, appSpec, profileName) {
+  const profile = slug(profileName);
+  const preset = findApp(appSpec);
+  const spec = String(appSpec || '');
+  const resolved = path.isAbsolute(spec) ? path.resolve(spec) : null;
+  return store.profiles.find((p) => p.profile === profile && (
+    (preset && p.app === preset.id) ||
+    p.app === slug(spec) ||
+    (resolved && p.source && path.resolve(p.source) === resolved)
+  )) || null;
 }
 
 export async function remove(appSpec, profileName, { purge = false } = {}, log = () => {}) {
   const be = await backend();
   const store = loadStore();
-  const app = resolveApp(appSpec);
-  const profile = slug(profileName);
-  const record = store.profiles.find((p) => p.app === app.id && p.profile === profile);
-  if (!record) throw new Error(`No profile ${app.id}/${profile}. Run dupe list.`);
+  const record = findProfile(store, appSpec, profileName);
+  if (!record) throw new Error(`No profile ${slug(String(appSpec))}/${slug(profileName)}. Run dupe list.`);
+  const app = { id: record.app };
+  const profile = record.profile;
   log(`${record.appName} · ${record.profile}`);
   be.remove(record, { purge }, log);
-  removeProfile(store, app.id, profile);
-  saveStore(store);
+  commitRemoval(app.id, profile);
   schedule.refresh();
   return record;
 }
@@ -136,14 +166,13 @@ export async function rebuild(appSpec, values = {}, log = () => {}) {
   const targets = store.profiles.filter((p) => !only || p.app === only);
   const results = [];
   for (const old of targets) {
-    const app = findApp(old.app) || customApp(old.source, old.appName);
+    const app = old.custom ? customApp(old.source, old.appName) : (findApp(old.app) || customApp(old.source, old.appName));
     const opts = prepare(app, old.profile, values, store, old);
     log(`${app.name} · ${opts.profile}  "${opts.label}"  ${opts.color}`);
     try {
       const record = be.build(app, opts, log);
       if (!record.sourceStamp) record.sourceStamp = stampId(be, app);
-      upsertProfile(store, record);
-      saveStore(store);
+      commitProfile(record, { ifPresent: true });
       results.push({ ok: true, record });
     } catch (e) {
       log(`  skipped     ${e.message}`);
@@ -155,10 +184,8 @@ export async function rebuild(appSpec, values = {}, log = () => {}) {
 
 export async function open(appSpec, profileName) {
   const be = await backend();
-  const store = loadStore();
-  const app = resolveApp(appSpec);
-  const record = store.profiles.find((p) => p.app === app.id && p.profile === slug(profileName));
-  if (!record) throw new Error(`No profile ${app.id}/${slug(profileName)}. Run dupe list.`);
+  const record = findProfile(loadStore(), appSpec, profileName);
+  if (!record) throw new Error(`No profile ${slug(String(appSpec))}/${slug(profileName)}. Run dupe list.`);
   be.launch(record);
   return record;
 }

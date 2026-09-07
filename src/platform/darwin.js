@@ -84,6 +84,14 @@ export function build(app, opts, log = () => {}) {
   const src = found.bundle;
   const srcStamp = stampBundle(src);
   const dup = path.join(path.dirname(src), `${opts.label}.app`);
+  // "dupe add claude claude" would otherwise name the clone /Applications/
+  // Claude.app — the app it is about to be copied from — and delete it.
+  if (path.resolve(dup) === path.resolve(src)) {
+    throw new Error(`A profile called "${opts.label}" would land on ${src}, the app it is copied from. Pass --label to give it a different name.`);
+  }
+  // Everything is built here and moved into place at the end, so a failure
+  // half way leaves the profile you already had, not a broken bundle.
+  const staging = `${dup}.dupe-building`;
   const info = path.join(src, 'Contents', 'Info.plist');
   const exeName = plist(info, 'Print :CFBundleExecutable');
   let iconFile = plistTry(info, 'Print :CFBundleIconFile') || 'electron.icns';
@@ -98,18 +106,22 @@ export function build(app, opts, log = () => {}) {
     log(`  icon        ${opts.iconFile ? path.basename(opts.iconFile) : iconFile} ${source.width}px → ${opts.color} (${treatment})`);
 
     log(`  clone       ${dup}`);
-    killClone(dup);
-    if (fs.existsSync(dup)) fs.rmSync(dup, { recursive: true, force: true });
+    fs.rmSync(staging, { recursive: true, force: true });
     // APFS copy-on-write clone; falls back to a plain copy on other filesystems.
-    // Root-owned unreadable files are skipped — the app can't read them either.
-    let r = spawnSync('cp', ['-Rc', src, dup], { stdio: 'ignore' });
-    if (r.status !== 0 && !fs.existsSync(path.join(dup, 'Contents'))) {
-      fs.rmSync(dup, { recursive: true, force: true });
-      spawnSync('cp', ['-R', src, dup], { stdio: 'ignore' });
+    // Root-owned unreadable files are skipped — the app can't read them either,
+    // so cp reporting failure doesn't mean the copy is unusable. What matters
+    // is whether the parts we are about to edit arrived.
+    let r = spawnSync('cp', ['-Rc', src, staging], { encoding: 'utf8' });
+    if (!cloned(staging, exeName)) {
+      fs.rmSync(staging, { recursive: true, force: true });
+      r = spawnSync('cp', ['-R', src, staging], { encoding: 'utf8' });
+      if (!cloned(staging, exeName)) {
+        throw new Error(`Couldn't copy ${src}: ${(r.stderr || '').trim() || `cp exited ${r.status}`}`);
+      }
     }
 
     // Launcher in place of the real binary.
-    const macos = path.join(dup, 'Contents', 'MacOS');
+    const macos = path.join(staging, 'Contents', 'MacOS');
     fs.renameSync(path.join(macos, exeName), path.join(macos, `${exeName}Main`));
     const env = { ...(app.env ? app.env(opts.dataDir) : {}), ...(opts.extraEnv || {}) };
     const args = [`--user-data-dir=${opts.dataDir}`, ...(app.args ? app.args(opts.dataDir) : []), ...(opts.extraArgs || [])];
@@ -133,27 +145,41 @@ export function build(app, opts, log = () => {}) {
     fs.writeFileSync(path.join(macos, exeName), sh, { mode: 0o755 });
 
     // Icon file, named whatever the bundle loads, plus a PNG for the UI.
-    writeIcnsFile(master, path.join(dup, 'Contents', 'Resources', iconFile));
+    writeIcnsFile(master, path.join(staging, 'Contents', 'Resources', iconFile));
     const iconsDir = path.join(os.homedir(), 'Library', 'Application Support', 'dupe', 'icons');
     fs.mkdirSync(iconsDir, { recursive: true });
     const iconPng = path.join(iconsDir, `${app.id}-${opts.profile}.png`);
     writePng(master, iconPng);
 
     // Distinct identity, frozen updates.
-    const dupInfo = path.join(dup, 'Contents', 'Info.plist');
+    const dupInfo = path.join(staging, 'Contents', 'Info.plist');
     for (const key of ['CFBundleDisplayName', 'CFBundleName']) {
       if (!plistTry(dupInfo, `Set :${key} ${opts.label}`)) plistTry(dupInfo, `Add :${key} string ${opts.label}`);
     }
-    plistTry(dupInfo, 'Delete :CFBundleIconName'); // force the .icns over Assets.car
+    // Point the bundle at the .icns we just wrote. Apps that ship their icon
+    // in an asset catalog have CFBundleIconName and no CFBundleIconFile, so
+    // deleting the one without adding the other would leave no icon at all.
+    plistTry(dupInfo, 'Delete :CFBundleIconName');
+    if (!plistTry(dupInfo, `Set :CFBundleIconFile ${iconFile}`)) plistTry(dupInfo, `Add :CFBundleIconFile string ${iconFile}`);
     const newId = `${oldId}.${opts.profile}`;
     plist(dupInfo, `Set :CFBundleIdentifier ${newId}`);
     if (!plistTry(dupInfo, 'Set :SUEnableAutomaticChecks false')) plistTry(dupInfo, 'Add :SUEnableAutomaticChecks bool false');
-    fs.rmSync(path.join(dup, 'Contents', 'Resources', 'app-update.yml'), { force: true });
+    fs.rmSync(path.join(staging, 'Contents', 'Resources', 'app-update.yml'), { force: true });
 
     // Re-sign (contents changed) and clear the quarantine flag cp carried over,
     // which combined with an ad-hoc signature is what makes Gatekeeper refuse.
-    execFileSync('codesign', ['--force', '--deep', '--sign', '-', dup], { stdio: 'ignore' });
-    spawnSync('xattr', ['-dr', 'com.apple.quarantine', dup], { stdio: 'ignore' });
+    // An unsigned modified bundle won't launch at all, so a failure here is
+    // the end of the build rather than something to note and carry on past.
+    const signed = spawnSync('codesign', ['--force', '--deep', '--sign', '-', staging], { encoding: 'utf8' });
+    if (signed.status !== 0) {
+      throw new Error(`codesign wouldn't sign the clone: ${(signed.stderr || '').trim() || `exit ${signed.status}`}`);
+    }
+    spawnSync('xattr', ['-dr', 'com.apple.quarantine', staging], { stdio: 'ignore' });
+
+    // Into place. The old clone goes only once the new one is ready.
+    killClone(dup);
+    fs.rmSync(dup, { recursive: true, force: true });
+    fs.renameSync(staging, dup);
     log(`  bundle id   ${newId}`);
 
     return {
@@ -164,7 +190,15 @@ export function build(app, opts, log = () => {}) {
     };
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
+    fs.rmSync(staging, { recursive: true, force: true }); // a no-op once it has been renamed into place
   }
+}
+
+// cp reports failure for files it couldn't read even when everything that
+// matters came across, so the copy is judged by what has to be there.
+function cloned(dir, exeName) {
+  return fs.existsSync(path.join(dir, 'Contents', 'Info.plist')) &&
+    fs.existsSync(path.join(dir, 'Contents', 'MacOS', exeName));
 }
 
 function shq(s) {

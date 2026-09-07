@@ -220,6 +220,13 @@ export function stamp(app) {
 export function running(record) {
   if (!record.launcher) return false;
   const name = path.basename(record.launcher);
-  const r = spawnSync('tasklist', ['/FI', `IMAGENAME eq ${name}`, '/NH'], { encoding: 'utf8' });
-  return r.status === 0 && r.stdout.toLowerCase().includes(name.toLowerCase());
+  // CSV, not the default table: that pads and truncates the image name at 25
+  // characters, so "Visual Studio Code Work.exe" would never match itself and
+  // an open profile would be rebuilt underneath whoever was using it.
+  const r = spawnSync('tasklist', ['/FI', `IMAGENAME eq ${name}`, '/NH', '/FO', 'CSV'], { encoding: 'utf8' });
+  if (r.status !== 0) return false;
+  return (r.stdout || '').split(/\r?\n/).some((line) => {
+    const first = /^"([^"]*)"/.exec(line.trim());
+    return !!first && first[1].toLowerCase() === name.toLowerCase();
+  });
 }

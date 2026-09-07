@@ -55,19 +55,22 @@ export function humanInterval(minutes) {
   return minutes === 1 ? 'every minute' : `every ${minutes} minutes`;
 }
 
-/** How to invoke this same dupe again from a scheduler: the script under the
- *  interpreter running now, or the compiled binary, which is its own. */
+/**
+ * How to invoke this same dupe again from a scheduler, or from a clone's own
+ * launcher: the script under the interpreter running now, or the compiled
+ * binary, which is its own.
+ *
+ * DUPE_HOME moves everything dupe owns, and none of these callers inherits
+ * the shell that set it — a launchd agent, a Scheduled Task and a crontab
+ * line each have their own idea of the environment — so when it is set it
+ * travels as an argument, which every one of them carries faithfully.
+ */
 export function selfCommand(extra = []) {
   const script = path.resolve(HERE, '..', 'bin', 'dupe.js');
+  const home = process.env.DUPE_HOME ? ['--dupe-home', process.env.DUPE_HOME] : [];
   return fs.existsSync(script)
-    ? { command: process.execPath, args: [script, ...extra] }
-    : { command: process.execPath, args: [...extra] };
-}
-
-// DUPE_HOME moves everything dupe owns; a scheduled run has to agree with
-// the shell that set it up or it would look at an empty machine.
-function inheritedEnv() {
-  return process.env.DUPE_HOME ? { DUPE_HOME: process.env.DUPE_HOME } : {};
+    ? { command: process.execPath, args: [script, ...home, ...extra] }
+    : { command: process.execPath, args: [...home, ...extra] };
 }
 
 // ---- macOS: a launchd agent, on an interval and on any stock app changing.
@@ -137,7 +140,7 @@ function launchctl(args) {
 
 function darwinEnable(minutes) {
   const { command, args } = selfCommand(['update', '--scheduled']);
-  const body = launchdPlist({ command, args, minutes, watch: watchPaths(loadStore().profiles), env: inheritedEnv() });
+  const body = launchdPlist({ command, args, minutes, watch: watchPaths(loadStore().profiles) });
   const unchanged = fs.existsSync(PLIST) && fs.readFileSync(PLIST, 'utf8') === body;
   fs.mkdirSync(path.dirname(PLIST), { recursive: true });
   fs.mkdirSync(path.dirname(LOG_FILE), { recursive: true });
@@ -401,7 +404,7 @@ function linuxEnable(minutes) {
   const self = selfCommand(['update', '--scheduled']);
   fs.mkdirSync(path.dirname(LOG_FILE), { recursive: true });
   if (hasSystemd()) {
-    const units = systemdUnits({ ...self, minutes, watch: watchPaths(loadStore().profiles), env: inheritedEnv() });
+    const units = systemdUnits({ ...self, minutes, watch: watchPaths(loadStore().profiles) });
     fs.mkdirSync(UNIT_DIR, { recursive: true });
     const before = readUnits();
     fs.writeFileSync(path.join(UNIT_DIR, `${UNIT}.service`), units.service);

@@ -18,7 +18,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { findApp, customApp } from './apps.js';
 import * as core from './core.js';
-import { LOG_FILE, loadStore, saveStore, slug, upsertProfile } from './store.js';
+import { LOG_FILE, commitProfile, loadStore, slug } from './store.js';
 import { writeState } from './schedule.js';
 
 // A stock app that changed a moment ago may still be mid-write — an app
@@ -33,8 +33,11 @@ function safe(fn, fallback = null) {
   try { return fn(); } catch { return fallback; }
 }
 
-/** The preset (or custom app) a stored profile was built from. */
+/** The preset (or custom app) a stored profile was built from. A record
+ *  that says it is custom is never resolved to a preset, so an app called
+ *  Chrome.exe in a folder of your own is not rebuilt from Google Chrome. */
 export function appOf(record) {
+  if (record.custom) return customApp(record.source || record.app, record.appName);
   return findApp(record.app) || customApp(record.source || record.app, record.appName);
 }
 
@@ -63,7 +66,7 @@ export async function check({ app, profile } = {}) {
   const onlyProfile = profile ? slug(profile) : null;
   const stamps = new Map();
   const profiles = [];
-  let adopted = false;
+  const adopted = [];
 
   for (const record of store.profiles) {
     if (only && record.app !== only) continue;
@@ -73,7 +76,7 @@ export async function check({ app, profile } = {}) {
     const state = classify(record, stamp);
     // First look at a profile built by an older dupe: adopt today's
     // fingerprint so every later check is an exact comparison.
-    if (stamp && state === 'current' && record.sourceStamp !== stamp.id) { record.sourceStamp = stamp.id; adopted = true; }
+    if (stamp && state === 'current' && record.sourceStamp !== stamp.id) { record.sourceStamp = stamp.id; adopted.push({ ...record }); }
     profiles.push({
       app: record.app, appName: record.appName, profile: record.profile, label: record.label,
       state, version: stamp ? stamp.version : null, source: stamp ? stamp.path : record.source,
@@ -81,7 +84,7 @@ export async function check({ app, profile } = {}) {
       running: state === 'stale' ? !!safe(() => be.running(record), false) : false,
     });
   }
-  if (adopted) saveStore(store);
+  for (const record of adopted) commitProfile(record, { ifPresent: true });
 
   const count = (s) => profiles.filter((p) => p.state === s).length;
   return { platform: process.platform, profiles, stale: count('stale'), missing: count('missing'), current: count('current') };
@@ -135,7 +138,7 @@ export async function update({ app, profile, all = false, force = false, schedul
     }
     if (state === 'current' && !all) {
       result.current++;
-      if (stamp && record.sourceStamp !== stamp.id) { record.sourceStamp = stamp.id; saveStore(store); }
+      if (stamp && record.sourceStamp !== stamp.id) commitProfile({ ...record, sourceStamp: stamp.id }, { ifPresent: true });
       continue;
     }
     if (!force && safe(() => be.running(record), false)) {
@@ -160,8 +163,9 @@ export async function update({ app, profile, all = false, force = false, schedul
       const built = be.build(preset, opts, log);
       // darwin records its own while cloning; the rest are stamped here.
       built.sourceStamp = built.sourceStamp || (stamp || {}).id || null;
-      upsertProfile(store, built);
-      saveStore(store);
+      // Into the store as it is now, not the copy read before the rebuild —
+      // and not at all if the profile was removed while we were building.
+      commitProfile(built, { ifPresent: true });
       result.updated.push({ app: built.app, profile: built.profile, label: built.label, version: stamp ? stamp.version : null });
     } catch (e) {
       result.failed.push({ app: record.app, profile: record.profile, label: record.label, error: e.message });
