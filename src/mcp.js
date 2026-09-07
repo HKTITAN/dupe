@@ -80,7 +80,7 @@ const TOOLS = [
         app: { type: 'string', description: 'Limit to this preset id' },
         profile: { type: 'string', description: 'Limit to this profile of that app' },
         all: { type: 'boolean', description: 'Rebuild every profile, changed or not' },
-        force: { type: 'boolean', description: 'Rebuild even a profile that is open; it will be restarted' },
+        force: { type: 'boolean', description: 'Rebuild even a profile that is open. It will be closed, and the user has to reopen it, so prefer leaving it deferred.' },
       },
       additionalProperties: false,
     },
