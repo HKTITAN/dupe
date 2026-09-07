@@ -378,24 +378,46 @@ export function encodePng({ width, height, data }) {
 // Windows .ico reader/writer. Reads PNG and 32/24/8/4/1-bit DIB entries,
 // writes 32-bit DIBs for small sizes and PNG for the 256px entry.
 
+// An icon is at most 256 pixels a side in the format's own directory, where
+// the size field is a single byte and 0 means 256. Nothing legitimate comes
+// close to this, and every number below is read out of the file.
+const MAX_ICON = 1024;
+const DIB_BITS = new Set([1, 4, 8, 24, 32]);
+
 // Decode a DIB (BITMAPINFOHEADER + XOR + AND) as stored in an ICO or RT_ICON.
 export function decodeDib(buf) {
+  if (buf.length < 40) throw new Error('DIB header is truncated');
   const hdr = buf.readUInt32LE(0);
   const width = buf.readInt32LE(4);
-  const height = buf.readInt32LE(8) / 2;
+  // biHeight counts the XOR and AND masks together, so the image is half of
+  // it — and an odd value is a malformed file, not a half-row image.
+  const height = Math.floor(buf.readInt32LE(8) / 2);
   const bits = buf.readUInt16LE(14);
   const compression = buf.readUInt32LE(16);
   if (compression !== 0) throw new Error(`Unsupported DIB compression ${compression}`);
+  if (!DIB_BITS.has(bits)) throw new Error(`Unsupported DIB colour depth ${bits}`);
+  // readInt32LE, so these can be negative; and this is reached for every
+  // icon resource in an arbitrary .exe, which is the ordinary path for
+  // `dupe add <some.exe>`. A 40-byte header claiming 20000x20000 used to
+  // allocate 1.6GB of zeros and return them as a picture.
+  if (width < 1 || height < 1 || width > MAX_ICON || height > MAX_ICON) {
+    throw new Error(`DIB claims to be ${width}x${height}; an icon is at most ${MAX_ICON} a side`);
+  }
+  if (hdr < 40 || hdr > buf.length) throw new Error('DIB header size is outside the entry');
   let colours = buf.readUInt32LE(32);
   let pos = hdr;
   let palette = null;
   if (bits <= 8) {
     if (colours === 0) colours = 1 << bits;
+    if (colours > 256) throw new Error(`DIB claims ${colours} palette entries`);
     palette = buf.subarray(pos, pos + colours * 4);
+    if (palette.length < colours * 4) throw new Error('DIB palette is truncated');
     pos += colours * 4;
   }
   const xorStride = ((width * bits + 31) >> 5) << 2;
   const andStride = ((width + 31) >> 5) << 2;
+  // The file has to actually carry the pixels it says it has.
+  if (buf.length < pos + xorStride * height) throw new Error('DIB pixel data is truncated');
   const xor = buf.subarray(pos, pos + xorStride * height);
   const and = buf.subarray(pos + xorStride * height, pos + xorStride * height + andStride * height);
   const hasMask = and.length >= andStride * height;
