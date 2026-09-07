@@ -314,8 +314,8 @@ export function remove(record, { purge = false } = {}, log = () => {}) {
   if (purge && record.dataDir && fs.existsSync(record.dataDir)) { fs.rmSync(record.dataDir, { recursive: true, force: true }); log(`  removed     ${record.dataDir} (profile data)`); }
 }
 
-export function launch(record) {
-  spawn(record.launcher, [], { detached: true, stdio: 'ignore' }).unref();
+export function launch(record, args = []) {
+  spawn(record.launcher, args, { detached: true, stdio: 'ignore' }).unref();
 }
 
 /** A fingerprint of the stock app as it is right now. An MSIX package's full

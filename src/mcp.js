@@ -12,7 +12,9 @@ import { NAMED, ORDER, resolveColor } from './palette.js';
 import { loadIcon, makeIcon, writeIcoFile, writeIcnsFile, writePng } from './icon.js';
 
 const PROTOCOL = '2025-06-18';
-const SERVER = { name: 'dupe', version: '0.1.0' };
+import { VERSION } from './embedded.js';
+
+const SERVER = { name: 'dupe', version: VERSION };
 
 const TOOLS = [
   {
@@ -44,7 +46,11 @@ const TOOLS = [
     description: 'Remove a profile\'s launcher and menu entry. Profile data is kept unless purge is true.',
     inputSchema: {
       type: 'object', required: ['app', 'profile'],
-      properties: { app: { type: 'string' }, profile: { type: 'string' }, purge: { type: 'boolean', description: 'Also delete the profile\'s data directory' } },
+      properties: {
+        app: { type: 'string' }, profile: { type: 'string' },
+        purge: { type: 'boolean', description: "Also delete the profile's data directory — the login, the history, everything it stored. Irreversible." },
+        confirm: { type: 'boolean', description: 'Required alongside purge. Set it only after the user has agreed to lose that data.' },
+      },
       additionalProperties: false,
     },
   },
@@ -104,8 +110,15 @@ const TOOLS = [
   },
   {
     name: 'open_profile',
-    description: 'Launch a built profile.',
-    inputSchema: { type: 'object', required: ['app', 'profile'], properties: { app: { type: 'string' }, profile: { type: 'string' } }, additionalProperties: false },
+    description: 'Launch a built profile, optionally at a URL or file. Use this to answer "open this link in my work account": the link opens in that profile\'s session rather than whichever copy happens to be in front.',
+    inputSchema: {
+      type: 'object', required: ['app', 'profile'],
+      properties: {
+        app: { type: 'string' }, profile: { type: 'string' },
+        url: { type: 'string', description: 'An http(s) or mailto URL, or a path to a file that exists. Optional.' },
+      },
+      additionalProperties: false,
+    },
   },
   {
     name: 'recolor_icon',
@@ -153,6 +166,11 @@ async function callTool(name, a = {}) {
       return { ...text(`${lines.join('\n')}\n\nBuilt "${record.label}". ${core.hint(record)}`), structuredContent: { record, hint: core.hint(record) } };
     }
     case 'remove_profile': {
+      // The CLI asks a human before deleting a login. An agent gets the same
+      // gate, made explicit, because there is nobody at the terminal.
+      if (a.purge && !a.confirm) {
+        return fail(`Removing ${a.app}/${a.profile} with purge deletes its login and history for good. Ask the user, then call again with confirm: true.`);
+      }
       const record = await core.remove(a.app, a.profile, { purge: !!a.purge }, log);
       return { ...text(`${lines.join('\n')}\n\n${a.purge ? 'Removed, including its data.' : `Removed. Data kept at ${record.dataDir}.`}`), structuredContent: { record } };
     }
@@ -181,8 +199,8 @@ async function callTool(name, a = {}) {
       return { ...text(line), structuredContent: s };
     }
     case 'open_profile': {
-      const record = await core.open(a.app, a.profile);
-      return { ...text(`Opened ${record.label}.`), structuredContent: { record } };
+      const record = await core.open(a.app, a.profile, a.url ? [a.url] : []);
+      return { ...text(a.url ? `Opened ${a.url} in ${record.label}.` : `Opened ${record.label}.`), structuredContent: { record } };
     }
     case 'recolor_icon': {
       const source = loadIcon(a.input);

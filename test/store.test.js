@@ -199,4 +199,20 @@ test('a profile whose launcher has been deleted is behind, not current', async (
   assert.equal(upd.artifactGone({}), false);
 });
 
+test('dupe open passes links and files, and nothing else', async () => {
+  const core = await import('../src/core.js');
+  // The point of two profiles is that a link belongs in one of them.
+  assert.equal(core.checkOpenArg('https://claude.ai/chat/x'), 'https://claude.ai/chat/x');
+  assert.equal(core.checkOpenArg('mailto:a@b.c'), 'mailto:a@b.c');
+  assert.equal(core.checkOpenArg(HOME), HOME, 'a path that exists');
+
+  // The launcher forwards these verbatim, and Chromium has switches that
+  // would turn "open a link" into something else entirely.
+  assert.throws(() => core.checkOpenArg('--headless'), /looks like a flag/);
+  assert.throws(() => core.checkOpenArg('--user-data-dir=/tmp/x'), /looks like a flag/);
+  assert.throws(() => core.checkOpenArg('file:///etc/passwd'), /won't pass a file: URL/);
+  assert.throws(() => core.checkOpenArg('javascript:alert(1)'), /won't pass a javascript: URL/);
+  assert.throws(() => core.checkOpenArg(path.join(HOME, 'not-here')), /neither a URL nor a file/);
+});
+
 test.after(() => fs.rmSync(HOME, { recursive: true, force: true }));

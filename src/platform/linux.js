@@ -356,8 +356,8 @@ export function remove(record, { purge = false } = {}, log = () => {}) {
   if (purge && record.dataDir && fs.existsSync(record.dataDir)) { fs.rmSync(record.dataDir, { recursive: true, force: true }); log(`  removed     ${record.dataDir} (profile data)`); }
 }
 
-export function launch(record) {
-  spawnSync('gio', ['launch', record.desktop], { stdio: 'ignore' });
+export function launch(record, args = []) {
+  spawnSync('gio', ['launch', record.desktop, ...args], { stdio: 'ignore' });
 }
 
 /** A fingerprint of the stock app as it is right now: the .desktop entry it

@@ -187,7 +187,13 @@ export async function state() {
   // between "dupe supports twelve apps" and "dupe supports what you have".
   let others = [];
   try {
-    const known = new Set(apps.map((a) => a.found && path.resolve(a.found).toLowerCase()).filter(Boolean));
+    // Presets that resolved, and every profile dupe has already built: a
+    // clone is a faithful copy of an Electron app, so it looks exactly like
+    // one worth offering, and cloning a clone is never what anyone means.
+    const known = new Set([
+      ...apps.map((a) => a.found).filter(Boolean),
+      ...store.profiles.map((p) => p.bundle || p.launcher || p.desktop).filter(Boolean),
+    ].map((f) => path.resolve(f).toLowerCase()));
     others = (be.discover ? be.discover() : []).filter((o) => !known.has(path.resolve(o.path).toLowerCase()));
     // A preset whose paths missed this machine's layout is still that app.
     // Credit the preset with what discovery found rather than printing
@@ -319,10 +325,38 @@ export async function rebuild(appSpec, values = {}, log = () => {}) {
   return results;
 }
 
-export async function open(appSpec, profileName) {
+/**
+ * Open a profile, optionally at something.
+ *
+ * The whole point of having a work copy and a personal copy is that a link
+ * belongs in one of them, and until now the only way to act on that was to
+ * click the right icon and paste. Every launcher already forwards its own
+ * arguments to the app, so this is a matter of passing them through:
+ * `dupe open claude work https://…` puts the link in the work profile.
+ */
+export async function open(appSpec, profileName, args = []) {
   const be = await backend();
   const record = findProfile(loadStore(), appSpec, profileName);
   if (!record) throw new Error(`No profile ${slug(String(appSpec))}/${slug(profileName)}. Run dupe list.`);
-  be.launch(record);
+  for (const a of args) checkOpenArg(a);
+  be.launch(record, args);
   return record;
+}
+
+// What may be handed to an app on the command line here: a URL of a scheme a
+// browser would follow, or a path that exists. Not a flag — the launcher
+// forwards these verbatim, and Chromium has switches that would turn opening
+// a link into something else entirely.
+export function checkOpenArg(arg) {
+  const s = String(arg);
+  if (s.startsWith('-')) throw new Error(`"${s}" looks like a flag. dupe open takes a URL or a file; use --arg on dupe add to give a profile a permanent flag.`);
+  // At least two characters before the colon, or a Windows path reads as
+  // a URL whose scheme is the drive letter.
+  if (/^[a-z][a-z0-9+.-]+:/i.test(s)) {
+    const scheme = s.slice(0, s.indexOf(':')).toLowerCase();
+    if (!['http', 'https', 'mailto'].includes(scheme)) throw new Error(`dupe open won't pass a ${scheme}: URL to an app.`);
+    return s;
+  }
+  if (!fs.existsSync(s)) throw new Error(`"${s}" is neither a URL nor a file that exists.`);
+  return s;
 }

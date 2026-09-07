@@ -96,7 +96,10 @@ export function build(app, opts, log = () => {}) {
   const dup = path.join(path.dirname(src), `${opts.label}.app`);
   // "dupe add claude claude" would otherwise name the clone /Applications/
   // Claude.app — the app it is about to be copied from — and delete it.
-  if (path.resolve(dup) === path.resolve(src)) {
+  // Compared without case, because the volume this lands on almost certainly
+  // ignores it: `--label claude` and Claude.app are the same directory, and
+  // an exact comparison would have waved that through.
+  if (path.resolve(dup).toLowerCase() === path.resolve(src).toLowerCase()) {
     throw new Error(`A profile called "${opts.label}" would land on ${src}, the app it is copied from. Pass --label to give it a different name.`);
   }
   // The clone's path is `<label>.app` beside the stock app, and the label is
@@ -115,6 +118,12 @@ export function build(app, opts, log = () => {}) {
   const staging = `${dup}.dupe-building-${process.pid}`;
   const info = path.join(src, 'Contents', 'Info.plist');
   const exeName = plist(info, 'Print :CFBundleExecutable');
+  // A clone keeps the real binary as <exe>Main beside the launcher script.
+  // Copying one would rename the launcher script to <exe>Main over the top
+  // of the real binary — and the real binary would be gone for good.
+  if (fs.existsSync(path.join(src, 'Contents', 'MacOS', `${exeName}Main`))) {
+    throw new Error(`${src} is already a dupe profile. Build from the app it was copied from instead.`);
+  }
   let iconFile = plistTry(info, 'Print :CFBundleIconFile') || 'electron.icns';
   if (!iconFile.endsWith('.icns')) iconFile += '.icns';
   const oldId = plist(info, 'Print :CFBundleIdentifier');
@@ -313,8 +322,12 @@ export function remove(record, { purge = false } = {}, log = () => {}) {
   }
 }
 
-export function launch(record) {
-  spawnSync('open', ['-a', record.bundle], { stdio: 'ignore' });
+export function launch(record, args = []) {
+  // `open --args` hands them to the app, which for a Chromium app means a
+  // URL or a file opens in this profile rather than whichever copy happens
+  // to be frontmost.
+  const argv = ['-a', record.bundle, ...(args.length ? ['--args', ...args] : [])];
+  spawnSync('open', argv, { stdio: 'ignore' });
 }
 
 /**

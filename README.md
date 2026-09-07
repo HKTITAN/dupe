@@ -41,7 +41,9 @@ Built "Claude Work". It's in the Start Menu; pin it to the taskbar from there.
 On macOS and Linux, mark it executable and, on macOS, clear the download quarantine once:
 
 ```bash
-chmod +x dupe-macos-arm64 && xattr -d com.apple.quarantine dupe-macos-arm64 && ./dupe-macos-arm64 ui
+chmod +x dupe-macos-arm64
+xattr -c dupe-macos-arm64        # only needed if the browser quarantined it
+./dupe-macos-arm64 ui
 ```
 
 Or with Node 20 or newer:
@@ -78,7 +80,7 @@ dupe remove <app> <profile>    Remove the launcher (add --purge to delete its da
 dupe update [app] [profile]    Rebuild whatever is behind
 dupe autoupdate on             Keep them level in the background, from now on
 dupe rebuild [app]             Rebuild every profile, behind or not
-dupe open <app> <profile>      Launch a profile
+dupe open <app> <profile> [url]  Launch a profile, optionally at a link or a file
 dupe icon <in> <out> --color … Recolour an icon file on its own (.exe .ico .icns .png)
 dupe colors                    The palette
 dupe log                       What the background updater has done lately
@@ -181,10 +183,25 @@ Nothing is rebuilt unless the app really moved: every profile records a fingerpr
 
 `dupe update` also notices when dupe itself has been upgraded, so improvements to the launcher reach profiles you built months ago.
 
+### Starting a profile from the account you already use
+
+dupe builds every profile empty, so the first thing you do in one is sign in. If you would rather the *new* profile be the one that starts fresh and keep your existing session where it is, move the stock app's data across before you first open the clone:
+
+```bash
+# Quit the app first. Then, for Claude on Windows:
+robocopy "%APPDATA%\Claude" "%USERPROFILE%\.dupe\data\claude\work" /E
+# macOS:
+cp -R ~/Library/Application\ Support/Claude/ ~/Library/Application\ Support/dupe/claude/work/
+```
+
+It works because the encryption key these apps use is per-user, not per-directory. `dupe status claude work` prints the exact destination for any profile.
+
 ## Limitations worth knowing
 
 - Isolation is `--user-data-dir` plus whatever the preset pins. If an app keeps state somewhere else (a keychain entry, a global daemon), that part is shared. Grok Bot and ChatGPT are the two known cases and are handled; report others.
 - A macOS clone is a copy, so it is rebuilt when the stock app changes — at launch, or in the background. That takes a few seconds, and it needs the stock app still to be installed.
+- Each rebuild re-signs the clone ad hoc, which changes its code signature. macOS ties privacy permissions to that signature, so a profile that has been granted screen recording, the microphone or accessibility will ask again after it catches up with an update. Nothing is lost but the grant; you re-approve it once per update.
+- Double-clicking a downloaded binary in Finder shows "cannot be opened because it is from an unidentified developer" — the binaries are unsigned. Run it from a terminal as above, or right-click → Open once. `npm install -g @hktitan/dupe` avoids this entirely.
 - On Windows, if you run `dupe` from a terminal that itself runs inside a Store-packaged app (Claude Desktop's terminal, say), AppData writes are virtualised into that package's cache and the shell can't see them. `dupe` keeps everything under `~/.dupe` to stay clear of that, and the Start Menu shortcut is written by the launcher so it lands in the real folder.
 - The Windows launcher compiles with the .NET Framework C# compiler. If an enterprise image has removed it, the build fails with a clear message.
 

@@ -20,7 +20,7 @@ Usage
   dupe update [app] [profile]    Rebuild the profiles that are behind
   dupe autoupdate [on|off]       Do that in the background from now on (bare: show the schedule)
   dupe rebuild [app]             Rebuild every profile, behind or not
-  dupe open <app> <profile>      Launch a profile
+  dupe open <app> <profile> [url]  Launch a profile, optionally at a link or file
   dupe ui                        Open the interface in your browser, connected to this computer
   dupe icon <file> <out>         Recolour any icon file (.exe .ico .icns .png) on its own
   dupe colors                    The named palette
@@ -157,8 +157,9 @@ export async function main(argv) {
     }
     case 'autoupdate': case 'auto': return autoupdate(rest, values);
     case 'open': case 'launch': {
-      if (!rest[0] || !rest[1]) throw new Error('Usage: dupe open <app> <profile>');
-      await core.open(rest[0], rest[1]);
+      if (!rest[0] || !rest[1]) throw new Error('Usage: dupe open <app> <profile> [url or file]');
+      const record = await core.open(rest[0], rest[1], rest.slice(2));
+      if (rest[2]) console.log(`${swatch(record.color)} ${rest[2]} → ${bold(record.label)}`);
       return 0;
     }
     case 'ui': {
