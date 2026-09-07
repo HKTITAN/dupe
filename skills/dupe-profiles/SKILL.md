@@ -10,7 +10,7 @@ license: MIT
 
 ## How to run it
 
-Prefer the MCP tools if the `dupe` server is connected: `list_apps`, `add_profile`, `remove_profile`, `rebuild_profiles`, `open_profile`, `recolor_icon`, `palette`. They return structured JSON.
+Prefer the MCP tools if the `dupe` server is connected: `list_apps`, `check_updates`, `add_profile`, `remove_profile`, `update_profiles`, `autoupdate`, `rebuild_profiles`, `open_profile`, `install_app`, `recolor_icon`, `palette`. They return structured JSON.
 
 Otherwise use the CLI from this plugin's root with Node 20+, no install needed:
 
@@ -20,7 +20,9 @@ node <plugin-root>/bin/dupe.js add claude work
 node <plugin-root>/bin/dupe.js add claude client-a --color green --label "Claude · Acme"
 node <plugin-root>/bin/dupe.js add "/Applications/Slack.app" personal
 node <plugin-root>/bin/dupe.js remove claude work            # keeps data; add --purge to delete it
-node <plugin-root>/bin/dupe.js rebuild                        # after the stock app updated (macOS needs this)
+node <plugin-root>/bin/dupe.js status                         # is each profile level with the app it copies?
+node <plugin-root>/bin/dupe.js update                         # rebuild whatever is behind
+node <plugin-root>/bin/dupe.js autoupdate on                  # keep them level in the background
 node <plugin-root>/bin/dupe.js open claude work
 node <plugin-root>/bin/dupe.js ui                             # the browser interface, connected to this computer
 ```
@@ -33,7 +35,7 @@ If `dupe` is installed globally (`npm install -g @hktitan/dupe`), the command is
 2. **Name the profile from the user's words.** "work", "personal", "client-a", "acme". Names are slugged (lowercase, hyphens). The label defaults to "<App> <Profile>"; set `label` when the user gave one.
 3. **Colour.** The first profile of an app is blue (Stephen Wu's "blue means work"); each further one takes the next palette colour automatically. Only pass `color` when the user asked for one. Accept palette names (blue, green, purple, amber, red, teal, pink, gray) or a hex.
 4. **Build**, then tell the user exactly what was made: label, where the launcher/bundle is, and the hint the tool returns (pin from Start Menu on Windows; Launchpad/Dock on macOS; app launcher on Linux).
-5. **After a stock-app update on macOS**, run `rebuild_profiles`. Windows and Linux profiles run the stock binary in place and pick updates up automatically.
+5. **Profiles keep themselves level with the stock app.** A macOS clone rebuilds itself when it is opened, and `autoupdate` with `action: "on"` schedules the same catch-up in the background on every platform — suggest it once a user has more than one profile. Use `check_updates` to answer "is anything behind?" and `update_profiles` to act on it; neither rebuilds a profile that is open, so say so rather than forcing it. `rebuild_profiles` is the blunt version, for when a profile is visibly broken rather than merely behind.
 
 ## What isolation means here
 
@@ -48,5 +50,5 @@ Profiles are separated by Chromium's `--user-data-dir` plus whatever the preset 
 ## Platform notes
 
 - **Windows**: needs the .NET Framework `csc.exe` (present on every Windows 10/11). Store (MSIX) installs of Claude and ChatGPT are supported; the launcher resolves the package at launch. The launcher process stays alive next to the app to give it a separate taskbar identity.
-- **macOS**: clones the bundle (APFS copy-on-write), re-signs ad hoc, drops quarantine. Profiles are frozen snapshots of the stock app; rebuild after updates.
+- **macOS**: clones the bundle (APFS copy-on-write), re-signs ad hoc, drops quarantine. A clone is a copy of the stock app, so it is rebuilt when that app changes — its own launcher does this at open time, and the background job does it sooner.
 - **Linux**: writes a `.desktop` entry with `--class` so the dock separates the windows. If the icon is only SVG, `rsvg-convert`, `inkscape` or ImageMagick must be present, or pass `--icon some.png`.

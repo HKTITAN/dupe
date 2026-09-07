@@ -19,6 +19,7 @@ import path from 'node:path';
 import { findApp, customApp } from './apps.js';
 import * as core from './core.js';
 import { LOG_FILE, commitProfile, loadStore, slug } from './store.js';
+import { VERSION } from './embedded.js';
 import { writeState } from './schedule.js';
 
 // A stock app that changed a moment ago may still be mid-write — an app
@@ -49,13 +50,31 @@ export function appOf(record) {
  * Profiles built before fingerprints existed have none to compare, so they
  * fall back to the honest question: is the app newer than the profile?
  */
-export function classify(record, stamp) {
+export function classify(record, stamp, version = null) {
   if (!stamp) return 'missing';
+  // A profile is also behind when dupe itself has moved on: the launcher it
+  // was built with is part of the profile, so improvements to it only reach
+  // a machine by rebuilding. This is how an upgrade of dupe gets applied.
+  if (version && record.builtBy !== version) return 'stale';
   if (!record.sourceStamp) {
     const built = Date.parse(record.builtAt || '') || 0;
     return built && stamp.mtimeMs && stamp.mtimeMs > built + 1000 ? 'stale' : 'current';
   }
   return record.sourceStamp === stamp.id ? 'current' : 'stale';
+}
+
+/** Why a profile is behind, in words, for `dupe status`. The app moving is
+ *  the more interesting answer when both are true. */
+export function whyStale(record, stamp, version = null) {
+  if (!stamp) return null;
+  if (record.sourceStamp ? record.sourceStamp !== stamp.id : false) {
+    return stamp.version ? `the app is now ${stamp.version}` : 'the app has changed';
+  }
+  if (version && record.builtBy !== version) {
+    return `built by dupe ${record.builtBy || 'before it kept track'}`;
+  }
+  if (!record.sourceStamp) return 'the app has changed';
+  return null;
 }
 
 /** Which profiles are behind the app they wrap, without changing anything. */
@@ -73,14 +92,15 @@ export async function check({ app, profile } = {}) {
     if (onlyProfile && record.profile !== onlyProfile) continue;
     if (!stamps.has(record.app)) stamps.set(record.app, safe(() => be.stamp(appOf(record))));
     const stamp = stamps.get(record.app);
-    const state = classify(record, stamp);
+    const state = classify(record, stamp, VERSION);
     // First look at a profile built by an older dupe: adopt today's
     // fingerprint so every later check is an exact comparison.
     if (stamp && state === 'current' && record.sourceStamp !== stamp.id) { record.sourceStamp = stamp.id; adopted.push({ ...record }); }
     profiles.push({
-      app: record.app, appName: record.appName, profile: record.profile, label: record.label,
-      state, version: stamp ? stamp.version : null, source: stamp ? stamp.path : record.source,
-      builtAt: record.builtAt || null,
+      app: record.app, appName: record.appName, profile: record.profile, label: record.label, color: record.color,
+      state, why: state === 'stale' ? whyStale(record, stamp, VERSION) : null,
+      version: stamp ? stamp.version : null, source: stamp ? stamp.path : record.source,
+      builtAt: record.builtAt || null, builtBy: record.builtBy || null,
       running: state === 'stale' ? !!safe(() => be.running(record), false) : false,
     });
   }
@@ -128,7 +148,7 @@ export async function update({ app, profile, all = false, force = false, schedul
     const preset = appOf(record);
     if (!stamps.has(record.app)) stamps.set(record.app, safe(() => be.stamp(preset)));
     let stamp = stamps.get(record.app);
-    const state = classify(record, stamp);
+    const state = classify(record, stamp, VERSION);
     const where = `${record.appName} · ${record.profile}`;
 
     if (state === 'missing') {
@@ -163,6 +183,7 @@ export async function update({ app, profile, all = false, force = false, schedul
       const built = be.build(preset, opts, log);
       // darwin records its own while cloning; the rest are stamped here.
       built.sourceStamp = built.sourceStamp || (stamp || {}).id || null;
+      built.builtBy = VERSION;
       // Into the store as it is now, not the copy read before the rebuild —
       // and not at all if the profile was removed while we were building.
       commitProfile(built, { ifPresent: true });

@@ -43,14 +43,53 @@ function which(bin) {
   return r.status === 0 ? r.stdout.trim() : null;
 }
 
+/** The application id in `flatpak run [options] <id>`, or null. Read from
+ *  the Exec line rather than from the preset: whether an install is a Flatpak
+ *  is a property of this machine, and the presets that most need the answer
+ *  (the ones with extra environment to pin) are the ones least likely to
+ *  have declared it. */
+export function flatpakId(exec) {
+  const m = /\bflatpak\s+run\b(.*)/.exec(String(exec || ''));
+  if (!m) return null;
+  const rest = m[1].trim().split(/\s+/).filter((t) => t && !t.startsWith('-'));
+  return rest.length ? rest[0].replace(/^["']|["']$/g, '') : null;
+}
+
+// An AppImage carries its own .desktop and icon inside it. Ask the runtime
+// for just those two, into a directory of ours, rather than unpacking a
+// whole application to read two files.
+function fromAppImage(file) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dupe-appimage-'));
+  const run = (pattern) => spawnSync(file, ['--appimage-extract', pattern], { cwd: dir, stdio: 'ignore', timeout: 30_000 });
+  try {
+    run('*.desktop');
+    run('.DirIcon');
+    run('usr/share/icons/**');
+    const root = path.join(dir, 'squashfs-root');
+    if (!fs.existsSync(root)) return { exec: quote(file), icon: null, temp: dir };
+    const desktop = fs.readdirSync(root).find((n) => n.endsWith('.desktop'));
+    const entry = desktop ? parseDesktop(path.join(root, desktop)) : {};
+    // .DirIcon is the icon the launcher shows; it is a PNG, or a link to one.
+    let icon = null;
+    for (const candidate of ['.DirIcon', `${entry.Icon}.png`, `usr/share/icons/hicolor/256x256/apps/${entry.Icon}.png`]) {
+      const full = path.join(root, candidate);
+      if (candidate && fs.existsSync(full) && fs.statSync(full).isFile()) { icon = full; break; }
+    }
+    return { exec: quote(file), entry, icon, temp: dir };
+  } catch {
+    return { exec: quote(file), icon: null, temp: dir };
+  }
+}
+
 export function locate(app) {
   if (app.custom) {
     const p = path.resolve(app.source);
     if (!fs.existsSync(p)) return null;
     if (p.endsWith('.desktop')) {
       const d = parseDesktop(p);
-      return { desktop: p, entry: d, exec: d.Exec, icon: d.Icon };
+      return { desktop: p, entry: d, exec: d.Exec, icon: d.Icon, flatpak: flatpakId(d.Exec) };
     }
+    if (/\.appimage$/i.test(p)) return fromAppImage(p);
     return { exec: quote(p), icon: null };
   }
   const l = app.linux || {};
@@ -59,7 +98,7 @@ export function locate(app) {
       const file = path.join(dir, `${id}.desktop`);
       if (fs.existsSync(file)) {
         const d = parseDesktop(file);
-        return { desktop: file, entry: d, exec: d.Exec, icon: d.Icon, flatpak: /flatpak run/.test(d.Exec || '') ? l.flatpak : null };
+        return { desktop: file, entry: d, exec: d.Exec, icon: d.Icon, flatpak: flatpakId(d.Exec) || (/flatpak run/.test(d.Exec || '') ? l.flatpak : null) };
       }
     }
   }
@@ -117,9 +156,10 @@ export function build(app, opts, log = () => {}) {
   if (opts.iconFile) source = loadIcon(opts.iconFile);
   else {
     const iconPath = findIconFile(found.icon);
-    if (!iconPath) throw new Error(`Couldn't find an icon for ${app.name} (Icon=${found.icon}). Pass --icon <png>.`);
+    if (!iconPath) throw new Error(`Couldn't find an icon for ${app.name}${found.icon ? ` (Icon=${found.icon})` : ''}. Pass --icon <file.png> and dupe will recolour that instead.`);
     source = iconPath.endsWith('.svg') ? rasterizeSvg(iconPath, path.join(os.tmpdir(), `${iconName}.png`)) : loadIcon(iconPath);
   }
+  if (found.temp) fs.rmSync(found.temp, { recursive: true, force: true });
   const { master, treatment } = makeIcon(source, opts.color, opts.treatment);
   const pngs = writePngSet(master, iconsDir, iconName);
   // Also install into the hicolor theme so Icon=<name> resolves everywhere.
@@ -136,11 +176,13 @@ export function build(app, opts, log = () => {}) {
   fs.mkdirSync(opts.dataDir, { recursive: true });
   for (const v of Object.values(env)) if (v.startsWith(opts.dataDir)) fs.mkdirSync(v, { recursive: true });
 
-  // Strip field codes from the stock Exec and append ours; Flatpak takes env via --env.
+  // Strip field codes from the stock Exec and append ours; Flatpak takes env
+  // via --env, and needs the profile directory bound into its sandbox or the
+  // app cannot write the one thing that makes it a separate profile.
   let exec = String(found.exec || '').replace(/\s%[a-zA-Z]/g, '').trim();
   if (found.flatpak) {
-    const envFlags = Object.entries(env).map(([k, v]) => `--env=${k}=${quote(v)}`).join(' ');
-    exec = exec.replace(/flatpak run/, `flatpak run ${envFlags}`).trim();
+    const flags = [`--filesystem=${quote(opts.dataDir)}`, ...Object.entries(env).map(([k, v]) => `--env=${k}=${quote(v)}`)];
+    exec = exec.replace(/flatpak run/, `flatpak run ${flags.join(' ')}`).trim();
   } else if (Object.keys(env).length) {
     exec = `env ${Object.entries(env).map(([k, v]) => `${k}=${quote(v)}`).join(' ')} ${exec}`;
   }
@@ -187,6 +229,7 @@ function quote(s) {
 export function remove(record, { purge = false } = {}, log = () => {}) {
   if (record.desktop && fs.existsSync(record.desktop)) { fs.rmSync(record.desktop); log(`  removed     ${record.desktop}`); }
   if (record.iconName) {
+    const mine = new RegExp(`^${record.iconName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(-\\d+)?\\.png$`);
     for (const root of [path.join(DATA_HOME, 'icons', 'hicolor'), path.join(DATA_HOME, 'dupe', 'icons')]) {
       if (!fs.existsSync(root)) continue;
       const stack = [root];
@@ -195,7 +238,10 @@ export function remove(record, { purge = false } = {}, log = () => {}) {
         for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
           const full = path.join(dir, e.name);
           if (e.isDirectory()) stack.push(full);
-          else if (e.name.startsWith(record.iconName)) fs.rmSync(full);
+          // Exactly this profile's files: <name>.png in the theme and
+          // <name>-<size>.png beside it. A prefix match would take
+          // dupe-claude-work2's icons along with dupe-claude-work's.
+          else if (mine.test(e.name)) fs.rmSync(full);
         }
       }
     }

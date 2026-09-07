@@ -5,6 +5,7 @@ import { APPS, findApp, customApp } from './apps.js';
 import { NAMED, ORDER, resolveColor, nextColor } from './palette.js';
 import * as schedule from './schedule.js';
 import { DUPE_HOME, commitProfile, commitRemoval, loadStore, profileDataDir, slug, titleCase } from './store.js';
+import { VERSION } from './embedded.js';
 
 export async function backend() {
   switch (process.platform) {
@@ -124,6 +125,7 @@ export async function add(appSpec, profileName, values = {}, log = () => {}) {
   log(`${app.name} · ${opts.profile}  "${opts.label}"  ${opts.color}`);
   const record = be.build(app, opts, log);
   if (!record.sourceStamp) record.sourceStamp = stampId(be, app);
+  record.builtBy = VERSION;
   commitProfile(record);
   schedule.refresh(); // macOS watches the bundles it was built from
   return record;
@@ -172,6 +174,7 @@ export async function rebuild(appSpec, values = {}, log = () => {}) {
     try {
       const record = be.build(app, opts, log);
       if (!record.sourceStamp) record.sourceStamp = stampId(be, app);
+      record.builtBy = VERSION;
       commitProfile(record, { ifPresent: true });
       results.push({ ok: true, record });
     } catch (e) {

@@ -63,13 +63,18 @@ Either way there are no runtime dependencies: the image work (PNG, ICO, ICNS, PE
 
 ```
 dupe list                      Apps found on this machine and profiles built so far
+dupe status                    Whether each profile is level with the app it copies
+dupe install <app>             Install the stock app itself, if it isn't here yet
 dupe add <app> <profile>       Build a profile            dupe add chatgpt work
 dupe add <app> <profile> --color green --label "Claude · Acme"
 dupe remove <app> <profile>    Remove the launcher (add --purge to delete its data too)
-dupe rebuild [app]             Rebuild after the stock app updated (macOS needs this)
+dupe update [app] [profile]    Rebuild whatever is behind
+dupe autoupdate on             Keep them level in the background, from now on
+dupe rebuild [app]             Rebuild every profile, behind or not
 dupe open <app> <profile>      Launch a profile
 dupe icon <in> <out> --color … Recolour an icon file on its own (.exe .ico .icns .png)
 dupe colors                    The palette
+dupe uninstall                 Remove every profile and everything dupe has written
 ```
 
 `<app>` is a preset id or a path to the app itself (`/Applications/Foo.app`, `C:\…\Foo.exe`, `foo.desktop`, `Foo.AppImage`). Presets know where each app installs and what extra state has to be pinned:
@@ -124,10 +129,37 @@ Nothing is cloned. A `.desktop` entry in `~/.local/share/applications` runs the 
 
 Neither lets one app clone another, so the answers are configuration rather than code. They're written up honestly in [docs/android.md](docs/android.md) (work profile via Shelter, OEM app cloning, custom launcher icons) and [docs/ios.md](docs/ios.md) (isolated Home Screen web apps per account, Shortcut-wrapped icons, and why you can't have both at once).
 
+## Staying level with the app
+
+A Windows or Linux profile runs the stock binary in place, so the app itself is never out of date. A macOS profile is a copy, and a copy is a moment in time: when Claude updates itself, the clone doesn't. That used to mean running a rebuild by hand every few days. It doesn't now — three things keep a profile level, and you interact with none of them.
+
+**It catches up when you open it.** The clone's launcher compares the stock app against the fingerprint it was copied from — three plist reads and two stats, a millisecond — and if they differ it rebuilds before starting. You get a notification and the app takes a few seconds longer to appear, the way any app does when it applies an update. Whatever you open is the current version.
+
+**It catches up while you aren't looking.**
+
+```bash
+dupe autoupdate on             # or --every 2h; the default is every 6 hours
+dupe autoupdate                # what's scheduled, when it last ran, where the log is
+dupe autoupdate off            # removes every trace of it
+```
+
+This writes whatever your platform already runs at login: a launchd agent on macOS, a Scheduled Task on Windows, a systemd user timer (or a crontab line) on Linux. Nothing stays resident — the job is asleep until the OS wakes it. On macOS and Linux it also watches the stock apps themselves, so the catch-up usually starts within seconds of an update rather than at the next tick, and by the time you next click the icon there is nothing to do.
+
+**Or on demand.**
+
+```bash
+dupe status                    # ● current 1.4.2 · ○ behind — the app is now 1.4.3
+dupe update                    # rebuild only what's behind
+```
+
+Nothing is rebuilt unless the app really moved: every profile records a fingerprint of what it was built from. A profile that is open right now is left alone and picked up next time — a rebuild replaces the thing you are using — and a scheduled run waits for an app that is still being written before copying it. Your logins are never touched; profile data lives outside the bundle.
+
+`dupe update` also notices when dupe itself has been upgraded, so improvements to the launcher reach profiles you built months ago.
+
 ## Limitations worth knowing
 
 - Isolation is `--user-data-dir` plus whatever the preset pins. If an app keeps state somewhere else (a keychain entry, a global daemon), that part is shared. Grok Bot and ChatGPT are the two known cases and are handled; report others.
-- macOS clones don't auto-update. Windows and Linux profiles do, because they run the stock binary in place.
+- A macOS clone is a copy, so it is rebuilt when the stock app changes — at launch, or in the background. That takes a few seconds, and it needs the stock app still to be installed.
 - On Windows, if you run `dupe` from a terminal that itself runs inside a Store-packaged app (Claude Desktop's terminal, say), AppData writes are virtualised into that package's cache and the shell can't see them. `dupe` keeps everything under `~/.dupe` to stay clear of that, and the Start Menu shortcut is written by the launcher so it lands in the real folder.
 - The Windows launcher compiles with the .NET Framework C# compiler. If an enterprise image has removed it, the build fails with a clear message.
 

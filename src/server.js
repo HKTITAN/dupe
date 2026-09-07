@@ -54,12 +54,23 @@ function json(res, status, body) {
   res.end(JSON.stringify(body));
 }
 
+// A custom icon arrives as base64 in the body, so the cap is generous — but
+// it is a cap, and going past it has to come back as an answer. Destroying
+// the socket silently left the request hanging until the browser gave up.
+const MAX_BODY = 8e6;
+
 function readBody(req) {
   return new Promise((resolve, reject) => {
     let data = '';
-    req.on('data', (c) => { data += c; if (data.length > 1e6) req.destroy(); });
-    req.on('end', () => { try { resolve(data ? JSON.parse(data) : {}); } catch (e) { reject(e); } });
-    req.on('error', reject);
+    let over = false;
+    req.on('data', (c) => {
+      if (over) return;
+      data += c;
+      if (data.length > MAX_BODY) { over = true; reject(new Error(`That's larger than ${MAX_BODY / 1e6} MB — pick a smaller icon.`)); req.destroy(); }
+    });
+    req.on('end', () => { if (!over) { try { resolve(data ? JSON.parse(data) : {}); } catch (e) { reject(new Error("That request wasn't valid JSON.")); } } });
+    req.on('aborted', () => { if (!over) reject(new Error('The request was cut short.')); });
+    req.on('error', (e) => { if (!over) reject(e); });
   });
 }
 
@@ -150,10 +161,10 @@ async function api(req, res, url) {
     fs.writeFileSync(out, Buffer.concat(chunks));
     return json(res, 200, { saved: out, bytes: fs.statSync(out).size });
   }
-  const body = await readBody(req);
   const lines = [];
   const log = (l) => lines.push(l);
   try {
+    const body = await readBody(req);
     if (p === '/api/add') {
       const record = await core.add(body.app, body.profile, { color: body.color, label: body.label, treatment: body.treatment, iconData: body.iconData, icon: body.icon }, log);
       return json(res, 200, { record, hint: core.hint(record), log: lines });

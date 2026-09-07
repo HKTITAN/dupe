@@ -6,21 +6,24 @@ import * as core from './core.js';
 import * as upd from './update.js';
 import * as schedule from './schedule.js';
 import * as inst from './install.js';
+import { VERSION } from './embedded.js';
 
-const HELP = `dupe — run any desktop app as several isolated, colour-coded profiles
+const HELP = `dupe ${VERSION} — run any desktop app as several isolated, colour-coded profiles
 
 Usage
   dupe list                      Apps found on this machine and profiles built so far
+  dupe status [app] [profile]    Whether each profile is level with the app it copies
   dupe install <app>             Install the stock app itself, if it isn't here yet
   dupe add <app> <profile>       Build a profile (e.g. dupe add claude work)
   dupe remove <app> <profile>    Remove a profile's launcher (keeps its data unless --purge)
-  dupe update [app] [profile]    Rebuild the profiles whose stock app has changed
+  dupe update [app] [profile]    Rebuild the profiles that are behind
   dupe autoupdate [on|off]       Do that in the background from now on (bare: show the schedule)
-  dupe rebuild [app]             Rebuild every profile, changed or not
+  dupe rebuild [app]             Rebuild every profile, behind or not
   dupe open <app> <profile>      Launch a profile
   dupe ui                        Open the interface in your browser, connected to this computer
   dupe icon <file> <out>         Recolour any icon file (.exe .ico .icns .png) on its own
   dupe colors                    The named palette
+  dupe uninstall                 Remove every profile and everything dupe has written
 
 <app> is a preset id (dupe list) or a path to an app: .app, .exe, .desktop, AppImage.
 
@@ -37,9 +40,10 @@ Options for install (and add --install)
   --yes                 Don't ask first. Required when there's no terminal to ask in.
   --via <how>           winget | brew | flatpak | download | page. Default: the best available.
 
-Options for update
+Options for status / update
+  --json                status only: the same answer as JSON, for scripts
   --all                 Rebuild every profile, not only the ones that are behind
-  --force               Rebuild a profile even while it's open (it will be restarted)
+  --force               Rebuild a profile even while it's open (it will be closed)
   --quiet               Say nothing; write to ~/.dupe/logs/autoupdate.log instead
 
 Options for autoupdate
@@ -64,16 +68,20 @@ export async function main(argv) {
       every: { type: 'string' }, scheduled: { type: 'boolean', default: false },
       quiet: { type: 'boolean', default: false },
       install: { type: 'boolean', default: false }, yes: { type: 'boolean', short: 'y', default: false },
-      via: { type: 'string' },
+      via: { type: 'string' }, json: { type: 'boolean', default: false },
+      version: { type: 'boolean', short: 'v', default: false },
     },
   });
   const [cmd, ...rest] = positionals;
+  if (values.version || cmd === 'version') { console.log(VERSION); return 0; }
   if (values.help || !cmd || cmd === 'help') { process.stdout.write(HELP); return 0; }
   const log = (l) => console.log(l);
 
   switch (cmd) {
     case 'list': return list();
     case 'colors': return colors();
+    case 'status': return status(rest, values);
+    case 'uninstall': return uninstall(values, log);
     case 'install': {
       if (!rest[0]) throw new Error('Usage: dupe install <app>');
       return install(rest[0], values, log);
@@ -176,6 +184,61 @@ async function install(appSpec, values, log) {
   const r = await inst.install(appSpec, { via: step.via }, log);
   if (r.opened) console.log(`\nOpened ${r.opened}. Install it there, then run dupe again.`);
   else console.log(`\nInstalled ${p.app.name}. Now: dupe add ${p.app.id} work`);
+  return 0;
+}
+
+async function status(rest, values) {
+  const s = await upd.check({ app: rest[0], profile: rest[1] });
+  if (values.json) { console.log(JSON.stringify(s, null, 2)); return 0; }
+  if (!s.profiles.length) { console.log('No profiles yet — try: dupe add claude work'); return 0; }
+  for (const p of s.profiles) {
+    const mark = p.state === 'current' ? '●' : p.state === 'stale' ? '○' : '·';
+    const note = p.state === 'current' ? (p.version ? `current  ${p.version}` : 'current')
+      : p.state === 'missing' ? `${p.appName} isn't installed here any more`
+        : `behind — ${p.why || 'the app has changed'}${p.running ? ', and open right now' : ''}`;
+    console.log(`  ${mark} ${`${p.app}/${p.profile}`.padEnd(22)} ${note}`);
+  }
+  const auto = schedule.status();
+  console.log('');
+  if (s.stale) {
+    console.log(auto.enabled
+      ? `${s.stale} behind. Auto-update will pick ${s.stale === 1 ? 'it' : 'them'} up ${auto.detail || 'on its next run'}, or run dupe update now.`
+      : `${s.stale} behind. Run dupe update, or dupe autoupdate on to keep them level from now on.`);
+  } else {
+    console.log(auto.enabled ? `All level. Auto-update is on, ${auto.detail || ''}`.trim() : 'All level. Auto-update is off — dupe autoupdate on keeps it that way.');
+  }
+  return 0;
+}
+
+// Everything dupe has written, in the order that leaves nothing orphaned:
+// the schedule first, so nothing fires at a half-removed install, then the
+// profiles, then dupe's own directory.
+async function uninstall(values, log) {
+  const store = (await import('./store.js')).loadStore();
+  const auto = schedule.status();
+  if (!values.yes) {
+    console.log('dupe uninstall removes:');
+    if (auto.enabled) console.log(`  the ${auto.mechanism} job that keeps profiles up to date`);
+    for (const p of store.profiles) console.log(`  "${p.label}"  (${p.launcher || p.bundle || p.desktop})`);
+    console.log(`  ${(await import('./store.js')).DUPE_HOME}`);
+    console.log(values.purge ? '  and every profile\'s data, including its logins' : "\n  Profile data is kept. Add --purge to delete logins and history too.");
+    console.log('\nRun it again with --yes to go ahead. dupe itself is removed with npm uninstall -g @hktitan/dupe,');
+    console.log('or by deleting the binary you downloaded.');
+    return 0;
+  }
+  if (auto.enabled) { schedule.disable(); log('  schedule    removed'); }
+  for (const p of [...store.profiles]) {
+    try {
+      await core.remove(p.app, p.profile, { purge: values.purge }, log);
+    } catch (e) {
+      log(`  skipped     ${p.label}: ${e.message}`);
+    }
+  }
+  const { DUPE_HOME } = await import('./store.js');
+  const fs = await import('node:fs');
+  fs.rmSync(DUPE_HOME, { recursive: true, force: true });
+  log(`  removed     ${DUPE_HOME}`);
+  console.log('\nGone. Remove dupe itself with npm uninstall -g @hktitan/dupe, or by deleting the binary.');
   return 0;
 }
 
