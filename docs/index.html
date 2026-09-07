@@ -173,6 +173,9 @@
   .prow > img { width: 44px; height: 44px; border-radius: 11px; background: var(--polar); flex: none; }
   .prow .t { flex: 1 1 160px; min-width: 0; }
   .prow .t b { display: block; }
+  .prow .t b .behind { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 800; letter-spacing: .01em;
+    padding: 2px 8px; border-radius: 999px; border: 2px solid currentColor; margin-left: 8px; vertical-align: 1px; }
+  .prow .t b .behind::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
   .prow .t span { font-size: 13px; color: var(--wolf); display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .dotc { width: 12px; height: 12px; border-radius: 999px; display: inline-block; vertical-align: -1px; margin-right: 6px; box-shadow: inset 0 -2px 0 rgba(0,0,0,0.18); }
   .prow .edit { flex-basis: 100%; display: flex; flex-direction: column; gap: 14px; padding-top: 10px; border-top: 2px solid var(--swan); margin-top: 4px; }
@@ -402,7 +405,7 @@ const colorName = (hex) => (ORDER.find((n) => NAMED[n] === hex) || hex);
 const iconUrl = (source, hex) => `/api/icon?source=${encodeURIComponent(source)}${hex ? `&color=${encodeURIComponent(hex)}` : ''}`;
 
 /* ================= live mode: dupe an app ================= */
-let live = null;
+let live = null, updates = null;
 let pickedApp = null;   // preset id, or '__custom'
 let pcolor = null;
 
@@ -587,9 +590,16 @@ function renderProfiles(fresh) {
     const row = document.createElement('div');
     row.className = 'prow' + (fresh && fresh.app === p.app && fresh.profile === p.profile ? ' new' : '');
     const target = p.launcher || p.bundle || p.desktop || '';
+    const u = stateOf(p);
+    const behind = u && u.state === 'stale';
+    const chip = behind ? `<span class="behind" style="color:${p.color}">behind</span>` : '';
+    const sub = u && u.state === 'stale' ? `${p.appName} · ${p.profile} · ${u.why || 'the app has changed'}`
+      : u && u.state === 'missing' ? `${p.appName} isn't installed here any more`
+        : u && u.version ? `${p.appName} · ${p.profile} · ${u.version}`
+          : `${p.appName} · ${p.profile} · ${colorName(p.color)}`;
     row.innerHTML = `<img alt="" src="/api/profile-icon/${encodeURIComponent(p.app)}/${encodeURIComponent(p.profile)}?v=${encodeURIComponent(p.builtAt || '')}">
-      <div class="t"><b><i class="dotc" style="background:${p.color}"></i>${p.label}</b><span title="${target}">${p.appName} · ${p.profile} · ${colorName(p.color)}</span></div>
-      <div class="row"><button class="btn secondary sm" type="button" data-act="open"><span>Open</span></button><button class="btn secondary sm" type="button" data-act="edit"><span>Customise</span></button><button class="btn danger sm" type="button" data-act="remove"><span>Remove</span></button></div>
+      <div class="t"><b><i class="dotc" style="background:${p.color}"></i>${p.label}${chip}</b><span title="${target}">${sub}</span></div>
+      <div class="row">${behind ? '<button class="btn sm" type="button" data-act="catchup"><span>Update</span></button>' : ''}<button class="btn secondary sm" type="button" data-act="open"><span>Open</span></button><button class="btn secondary sm" type="button" data-act="edit"><span>Customise</span></button><button class="btn danger sm" type="button" data-act="remove"><span>Remove</span></button></div>
       <div class="edit" data-edit hidden>
         <label class="field">Shown as <input class="input" data-label value="${p.label.replace(/"/g, '&quot;')}"></label>
         <div><h3>Colour</h3><div class="strip" data-strip></div>
@@ -606,6 +616,18 @@ function renderProfiles(fresh) {
       const act = b.dataset.act;
       const confirm = row.querySelector('[data-confirm]'), edit = row.querySelector('[data-edit]'), status = row.querySelector('[data-status]');
       if (act === 'open') { b.disabled = true; try { await api('/api/open', { app: sourceOf(p), profile: p.profile }); } catch (err) { alert(`Couldn't open. ${err.message}`); } b.disabled = false; return; }
+      if (act === 'catchup') {
+        const span = b.querySelector('span');
+        b.disabled = true; span.textContent = 'Updating…';
+        try {
+          const r = await api('/api/update', { app: sourceOf(p), profile: p.profile });
+          live.profiles = r.profiles;
+          if (r.result.deferred.length) alert(`"${p.label}" is open right now. Close it and try again.`);
+          await refreshUpdates();
+          renderApps(); renderProfiles();
+        } catch (err) { span.textContent = 'Update'; b.disabled = false; alert(`Couldn't update. ${err.message}`); }
+        return;
+      }
       if (act === 'edit') { edit.hidden = !edit.hidden; confirm.hidden = true; if (!edit.hidden && !edit.dataset.ready) { edit.dataset.ready = '1'; const src = sourceOf(p); strip(row.querySelector('[data-strip]'), (hex) => iconUrl(src, hex), editColor, (hex) => { editColor = hex; row.querySelector('[data-hex]').value = ''; }, { original: false }); } return; }
       if (act === 'cancel-edit') { edit.hidden = true; return; }
       if (act === 'save') {
@@ -650,8 +672,17 @@ function renderAutoupdate(updates) {
 async function refreshUpdates() {
   try {
     const r = await fetch('/api/updates');
-    if (r.ok) renderAutoupdate(await r.json());
+    if (!r.ok) return;
+    updates = await r.json();
+    renderAutoupdate(updates);
+    renderProfiles();
   } catch { /* the toggle still works without a count */ }
+}
+
+/** What /api/updates said about one profile, if it has said anything yet. */
+function stateOf(p) {
+  if (!updates) return null;
+  return updates.profiles.find((u) => u.app === p.app && u.profile === p.profile) || null;
 }
 
 function wireAutoupdate() {
