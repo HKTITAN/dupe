@@ -36,6 +36,18 @@ export function resolveApp(spec, be = null) {
   throw new Error(`"${spec}" is not a preset, an app on this machine, or a path that exists. dupe list shows what's here.`);
 }
 
+// A name ends up in `export NAME=...` in the macOS launcher and in a
+// .desktop Exec line on Linux, so anything but a real variable name is a way
+// to write shell. Values are quoted at every use; names cannot be.
+const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+export function checkEnv(env) {
+  for (const k of Object.keys(env || {})) {
+    if (!ENV_NAME.test(k)) throw new Error(`"${k}" isn't a usable environment variable name — letters, digits and underscore, not starting with a digit.`);
+  }
+  return env;
+}
+
 export function parseEnv(list) {
   const out = {};
   for (const kv of list || []) {
@@ -43,7 +55,7 @@ export function parseEnv(list) {
     if (i <= 0) throw new Error(`--env expects KEY=VALUE, got "${kv}"`);
     out[kv.slice(0, i)] = kv.slice(i + 1);
   }
-  return out;
+  return checkEnv(out);
 }
 
 const TREATMENTS = new Set(['auto', 'hue', 'ramp-light', 'ramp-dark', 'none']);
@@ -86,7 +98,7 @@ export function prepare(app, profileName, values, store, existing) {
     profile, label, color, treatment,
     dataDir: (existing && existing.dataDir) || profileDataDir(app.id, profile),
     extraArgs: values.arg && values.arg.length ? values.arg : (existing && existing.extraArgs) || [],
-    extraEnv: values.env && values.env.length ? parseEnv(values.env) : (existing && existing.extraEnv) || {},
+    extraEnv: checkEnv(values.env && values.env.length ? parseEnv(values.env) : (existing && existing.extraEnv) || {}),
     iconFile,
   };
 }

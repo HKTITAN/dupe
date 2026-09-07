@@ -189,6 +189,12 @@ async function callTool(name, a = {}) {
       const color = resolveColor(a.color) || NAMED.blue;
       const { master, treatment, stats } = makeIcon(source, color, a.treatment || 'auto');
       const ext = path.extname(a.output).toLowerCase();
+      // An agent chooses this path. The tool says it writes an icon, so it
+      // writes an icon: anything else is a way to have dupe drop a file of
+      // the caller's choosing wherever the user can write.
+      if (!['.png', '.ico', '.icns'].includes(ext)) {
+        throw new Error(`recolor_icon writes .png, .ico or .icns — "${path.basename(a.output)}" is none of those.`);
+      }
       fs.mkdirSync(path.dirname(a.output), { recursive: true });
       let sizes;
       if (ext === '.ico') sizes = writeIcoFile(master, a.output);

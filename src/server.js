@@ -89,11 +89,33 @@ function readBody(req) {
   });
 }
 
-// Only a page served by this very server may call the API: same-origin
-// requests carry a matching Host, which also defeats DNS rebinding.
-function sameOrigin(req) {
+/**
+ * Only the page this server served may call the API.
+ *
+ * The Host check below defeats DNS rebinding, and browsers attach Origin to
+ * fetch, XHR and cross-origin form posts, so those are covered. What is not
+ * covered is everything that omits Origin: an `<img>`, a `<script>`, an
+ * `<iframe>`, a top-level navigation. Those carry `Host: 127.0.0.1:<port>`
+ * like any same-origin request, so treating a missing Origin as friendly let
+ * any page on the internet reach every GET route — and /api/updates writes
+ * to profiles.json and spawns a process per profile. An ephemeral port is
+ * 16k guesses with an <img> onerror, which is a speed bump, not a control.
+ *
+ * So the page is given a secret when it is served, and has to hand it back.
+ * Headers cover fetch; the query string covers the icon endpoints, which are
+ * loaded as image sources and cannot carry a header.
+ */
+const TOKEN = crypto.randomBytes(24).toString('base64url');
+
+function invited(req, url) {
   const host = req.headers.host || '';
-  return /^(127\.0\.0\.1|localhost|\[::1\]):\d+$/.test(host) && (!req.headers.origin || req.headers.origin.endsWith('//' + host));
+  if (!/^(127\.0\.0\.1|localhost|\[::1\]):\d+$/.test(host)) return false;
+  if (req.headers.origin && !req.headers.origin.endsWith('//' + host)) return false;
+  const offered = req.headers['x-dupe-token'] || url.searchParams.get('t') || '';
+  // Same length every time, so the comparison leaks nothing by timing.
+  const a = Buffer.from(String(offered));
+  const b = Buffer.from(TOKEN);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
 // The app's own icon, optionally recoloured. `source` is a preset id or a
@@ -128,7 +150,7 @@ async function appIcon(source, profileHex) {
 }
 
 async function api(req, res, url) {
-  if (!sameOrigin(req)) return json(res, 403, { error: 'Cross-origin requests are not allowed.' });
+  if (!invited(req, url)) return json(res, 403, { error: 'That request did not come from the page dupe served.' });
   const p = url.pathname;
   if (req.method === 'GET' && p === '/api/state') {
     const s = await core.state();
@@ -216,19 +238,29 @@ async function api(req, res, url) {
 
 // Static files come from docs/ in a checkout, or from the copies embedded in
 // a compiled binary (see scripts/build-embed.js).
+// The interface is one file, served from docs/ in a checkout or from the
+// copy embedded in a compiled binary. The token goes in as it is served, so
+// the same file works unchanged on GitHub Pages, where there is no server,
+// no token, and nothing to call.
+function withToken(html) {
+  return html.replace('<head>', `<head><meta name="dupe-token" content="${TOKEN}">`);
+}
+
 function serveStatic(req, res, url) {
   let rel = decodeURIComponent(url.pathname);
   if (rel === '/') rel = '/index.html';
   const type = TYPES[path.extname(rel).toLowerCase()] || 'application/octet-stream';
+  const isPage = rel === '/index.html';
   const file = path.normalize(path.join(DOCS, rel));
   if (file.startsWith(DOCS) && fs.existsSync(file) && !fs.statSync(file).isDirectory()) {
     res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'no-store' });
-    return fs.createReadStream(file).pipe(res);
+    if (!isPage) return fs.createReadStream(file).pipe(res);
+    return res.end(withToken(fs.readFileSync(file, 'utf8')));
   }
   const embedded = EMBEDDED[`docs${rel.replace(/\\/g, '/')}`];
   if (embedded !== undefined) {
     res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'no-store' });
-    return res.end(embedded);
+    return res.end(isPage ? withToken(embedded) : embedded);
   }
   res.writeHead(404, { 'Content-Type': 'text/plain' });
   res.end('Not found');

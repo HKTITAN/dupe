@@ -235,22 +235,28 @@ export function build(app, opts, log = () => {}) {
   // running from a checkout, or from the embedded copy in a compiled binary.
   const tplPath = path.join(here, 'win32-launcher.cs');
   const template = fs.existsSync(tplPath) ? fs.readFileSync(tplPath, 'utf8') : EMBEDDED['win32-launcher.cs'];
+  // Every value below is substituted with a function, never a string: with a
+  // string replacement, `$&`, '$\'' and a dollar-backtick in the VALUE are
+  // expanded by String.replace, and a label containing one spliced this
+  // file's own text into the C# literal and closed it — csc then compiled
+  // whatever followed, and build() runs the result. A function replacement
+  // is taken literally.
   // What the launcher runs on quit when the stock app has moved.
   const dupe = selfCommand(['update', app.id, opts.profile, '--quiet']);
   const src = template
-    .replace('@DUPE_COMMAND@', dupe.command.replace(/"/g, '""'))
-    .replace('@DUPE_ARGUMENTS@', dupe.args.map(quoteArg).join(' ').replace(/"/g, '""'))
-    .replace('@LABEL@', opts.label.replace(/"/g, '""'))
-    .replace('@AUMID@', aumid)
-    .replace('@EXE_PATH@', found.exe.replace(/"/g, '""'))
-    .replace('@MSIX_PATTERN@', found.kind === 'msix' ? found.msix.pattern : '')
-    .replace('@MSIX_EXE@', found.kind === 'msix' ? found.msix.exe : '')
-    .replace('@MSIX_ALIAS@', found.alias || '')
-    .replace('@PROFILE_DIR@', opts.dataDir.replace(/"/g, '""'))
-    .replace('@ARGUMENTS@', args.map(quoteArg).join(' ').replace(/"/g, '""'))
-    .replace('@ENV_KEYS@', csArray(Object.keys(env)))
-    .replace('@ENV_VALUES@', csArray(Object.values(env)))
-    .replace('@ENV_MKDIRS@', csArray(mkdirs));
+    .replace('@DUPE_COMMAND@', () => dupe.command.replace(/"/g, '""'))
+    .replace('@DUPE_ARGUMENTS@', () => dupe.args.map(quoteArg).join(' ').replace(/"/g, '""'))
+    .replace('@LABEL@', () => opts.label.replace(/"/g, '""'))
+    .replace('@AUMID@', () => aumid)
+    .replace('@EXE_PATH@', () => found.exe.replace(/"/g, '""'))
+    .replace('@MSIX_PATTERN@', () => found.kind === 'msix' ? found.msix.pattern : '')
+    .replace('@MSIX_EXE@', () => found.kind === 'msix' ? found.msix.exe : '')
+    .replace('@MSIX_ALIAS@', () => found.alias || '')
+    .replace('@PROFILE_DIR@', () => opts.dataDir.replace(/"/g, '""'))
+    .replace('@ARGUMENTS@', () => args.map(quoteArg).join(' ').replace(/"/g, '""'))
+    .replace('@ENV_KEYS@', () => csArray(Object.keys(env)))
+    .replace('@ENV_VALUES@', () => csArray(Object.values(env)))
+    .replace('@ENV_MKDIRS@', () => csArray(mkdirs));
   const csFile = path.join(dir, 'launcher.cs');
   fs.writeFileSync(csFile, src);
   const exe = path.join(dir, `${opts.label}.exe`);

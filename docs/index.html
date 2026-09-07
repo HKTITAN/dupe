@@ -403,7 +403,7 @@ const ICNS_SIZES = [16, 32, 64, 128, 256, 512, 1024];
 const titleCase = (s) => s.split(/[\s_-]+/).filter(Boolean).map((w) => w[0].toUpperCase() + w.slice(1)).join(' ');
 const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 const colorName = (hex) => (ORDER.find((n) => NAMED[n] === hex) || hex);
-const iconUrl = (source, hex) => `/api/icon?source=${encodeURIComponent(source)}${hex ? `&color=${encodeURIComponent(hex)}` : ''}`;
+const iconUrl = (source, hex) => tokened(`/api/icon?source=${encodeURIComponent(source)}${hex ? `&color=${encodeURIComponent(hex)}` : ''}`);
 
 /* ================= live mode: dupe an app ================= */
 let live = null, updates = null;
@@ -411,7 +411,10 @@ let pickedApp = null;   // preset id, or '__custom'
 let pcolor = null;
 
 async function api(path, body) {
-  const r = await fetch(path, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : undefined);
+  const headers = TOKEN ? { 'X-Dupe-Token': TOKEN } : {};
+  const r = await fetch(path, body
+    ? { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+    : { headers });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.error || `${r.status}`);
   return j;
@@ -423,6 +426,13 @@ function nextColor(id) {
   const used = new Set(profilesOf(id).map((p) => p.color));
   return (live.colors.find((c) => !used.has(c.hex)) || live.colors[0]).hex;
 }
+// The local server hands the page a token in a meta tag as it serves it, and
+// wants it back on every API call: a page on another origin can reach
+// 127.0.0.1 with an <img> but cannot read this. Empty on GitHub Pages, where
+// there is no server to call.
+const TOKEN = document.querySelector('meta[name="dupe-token"]')?.content || '';
+const tokened = (u) => (TOKEN ? u + (u.includes('?') ? '&' : '?') + 't=' + encodeURIComponent(TOKEN) : u);
+
 const sourceOf = (rec) => (rec.custom ? rec.source : rec.app);
 
 // Presets, plus every Electron app the server found that no preset covers.
@@ -482,7 +492,7 @@ function renderApps() {
     b.type = 'button'; b.className = 'tile'; b.dataset.id = app.id;
     b.setAttribute('aria-pressed', String(pickedApp === app.id));
     b.innerHTML = `<img alt="" src="${iconUrl(app.id)}"><span class="t"><b>${app.name}</b><span>${dupes.length ? `${dupes.length} profile${dupes.length === 1 ? '' : 's'}` : 'no profiles yet'}</span></span>` +
-      `<span class="dupes">${dupes.map((p) => `<img alt="${p.label}" title="${p.label}" src="/api/profile-icon/${encodeURIComponent(p.app)}/${encodeURIComponent(p.profile)}?v=${encodeURIComponent(p.builtAt || '')}">`).join('')}</span>`;
+      `<span class="dupes">${dupes.map((p) => `<img alt="${p.label}" title="${p.label}" src="${tokened(`/api/profile-icon/${encodeURIComponent(p.app)}/${encodeURIComponent(p.profile)}?v=${encodeURIComponent(p.builtAt || '')}`)}">`).join('')}</span>`;
     b.addEventListener('click', () => pickApp(app.id));
     el.appendChild(b);
   }
@@ -622,7 +632,7 @@ function renderProfiles(fresh) {
       : u && u.state === 'missing' ? `${p.appName} isn't installed here any more`
         : u && u.version ? `${p.appName} · ${p.profile} · ${u.version}`
           : `${p.appName} · ${p.profile} · ${colorName(p.color)}`;
-    row.innerHTML = `<img alt="" src="/api/profile-icon/${encodeURIComponent(p.app)}/${encodeURIComponent(p.profile)}?v=${encodeURIComponent(p.builtAt || '')}">
+    row.innerHTML = `<img alt="" src="${tokened(`/api/profile-icon/${encodeURIComponent(p.app)}/${encodeURIComponent(p.profile)}?v=${encodeURIComponent(p.builtAt || '')}`)}">
       <div class="t"><b><i class="dotc" style="background:${p.color}"></i>${p.label}${chip}</b><span title="${target}">${sub}</span></div>
       <div class="row">${behind ? '<button class="btn sm" type="button" data-act="catchup"><span>Update</span></button>' : ''}<button class="btn secondary sm" type="button" data-act="open"><span>Open</span></button><button class="btn secondary sm" type="button" data-act="edit"><span>Customise</span></button><button class="btn danger sm" type="button" data-act="remove"><span>Remove</span></button></div>
       <div class="edit" data-edit hidden>
@@ -696,7 +706,7 @@ function renderAutoupdate(updates) {
 
 async function refreshUpdates() {
   try {
-    const r = await fetch('/api/updates');
+    const r = await fetch('/api/updates', { headers: TOKEN ? { 'X-Dupe-Token': TOKEN } : {} });
     if (!r.ok) return;
     updates = await r.json();
     renderAutoupdate(updates);
@@ -741,7 +751,7 @@ async function connect() {
   const status = $('#status'), text = $('#status-text');
   try {
     const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 2500);
-    const r = await fetch('/api/state', { signal: ctrl.signal }); clearTimeout(t);
+    const r = await fetch('/api/state', { signal: ctrl.signal, headers: TOKEN ? { 'X-Dupe-Token': TOKEN } : {} }); clearTimeout(t);
     if (!r.ok) throw new Error();
     live = await r.json();
     status.classList.add('on');

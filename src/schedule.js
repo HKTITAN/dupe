@@ -248,8 +248,8 @@ async function winShim(command, args) {
   if (!template) return null;
   const argLine = args.map((a) => (/[\s"]/.test(a) ? `"${a.replace(/"/g, '\\"')}"` : a)).join(' ');
   const src = template
-    .replace('@COMMAND@', command.replace(/"/g, '""'))
-    .replace('@ARGUMENTS@', argLine.replace(/"/g, '""'));
+    .replace('@COMMAND@', () => command.replace(/"/g, '""'))
+    .replace('@ARGUMENTS@', () => argLine.replace(/"/g, '""'));
   fs.mkdirSync(WIN_DIR, { recursive: true });
   const cs = path.join(WIN_DIR, 'autoupdate.cs');
   const exe = path.join(WIN_DIR, 'dupe-autoupdate.exe');
