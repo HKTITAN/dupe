@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>dupe cheatsheet</title>
+<style id="fonts">
+  /* Nunito variable, latin subset, SIL Open Font License. */
+  @font-face { font-family: Nunito; font-weight: 200 1000; font-style: normal; src: url(banner/nunito.woff2) format("woff2"); }
+</style>
+<style>
+  html, body { margin: 0; background: #f7f7f7; font-family: Nunito, "Segoe UI", system-ui, sans-serif; }
+  canvas { display: block; margin: 24px auto; width: 1200px; height: 1460px; box-shadow: 0 2px 14px rgba(0,0,0,.12); background: #fff; }
+  #bar { position: fixed; left: 16px; top: 16px; display: flex; gap: 8px; font: 700 14px Nunito, sans-serif; }
+  button { font: inherit; padding: 6px 12px; border-radius: 8px; border: 2px solid #e5e5e5; background: #fff; cursor: pointer; }
+</style>
+</head>
+<body>
+<div id="bar">
+  <button id="save" type="button">Save to docs/cheatsheet.png</button>
+  <button id="download" type="button">Download</button>
+  <span id="msg"></span>
+</div>
+<canvas id="c" width="2400" height="2920"></canvas>
+<script>
+/* The command cheatsheet in README.md, drawn with the canvas API at 2x.
+   Same approach as banner.html: no foreignObject, because Chrome taints a
+   canvas drawn from one and then refuses toBlob(). Rendering here rather
+   than committing a hand-made image keeps the picture and the CLI in one
+   place — when a command changes, this changes with it. */
+const W = 1200, H = 1460;
+const INK = '#3c3c3c', MUTED = '#6f6f6f', FAINT = '#afafaf', LINE = '#e5e5e5', BLUE = '#1b91e3', WASH = '#f7f7f7';
+const MONO = 'ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace';
+
+const COMMANDS = [
+  ['list', '', 'list', 'Apps found on this machine, and the profiles built so far'],
+  ['status', '[app] [profile]', 'status', 'Whether each profile is level with the app it copies'],
+  ['install', '<app>', 'install', 'Install the stock app itself — winget, Homebrew or Flathub'],
+  ['add', '<app> <profile>', 'add', 'Build a profile: its own login, data, icon and dock entry'],
+  ['remove', '<app> <profile>', 'remove', 'Remove the launcher. Its data stays unless you add --purge'],
+  ['update', '[app] [profile]', 'update', 'Rebuild the profiles that are behind'],
+  ['autoupdate', '[on|off]', 'clock', 'Do that in the background. Bare: show the schedule'],
+  ['rebuild', '[app]', 'rebuild', 'Rebuild every profile, behind or not'],
+  ['open', '<app> <profile>', 'open', 'Launch a profile'],
+  ['ui', '', 'ui', 'The interface in your browser, connected to this computer'],
+  ['icon', '<in> <out>', 'icon', 'Recolour any icon file on its own: .exe .ico .icns .png'],
+  ['colors', '', 'colors', 'The eight palette colours'],
+  ['uninstall', '', 'uninstall', 'Remove every profile and everything dupe has written'],
+];
+
+const EXAMPLES = [
+  ['dupe add claude work', 'Claude Work: its own login, its own data, a blue icon'],
+  ['dupe add claude client-a --color green', 'A second one beside it, green, entirely separate'],
+  ['dupe add chatgpt personal --label "GPT Home"', 'Name it whatever you want to see in the dock'],
+  ['dupe add slack work --install', 'Install Slack first if it isn’t here, then profile it'],
+  ['dupe autoupdate on --every 2h', 'Check for stock app updates twice as often'],
+  ['dupe icon Claude.exe work.ico --color purple', 'Recolour an icon on its own, for a phone or a Shortcut'],
+];
+
+const OPTIONS = [
+  ['add · rebuild', [
+    ['--color <name|#hex>', 'blue green purple amber red teal pink gray'],
+    ['--label <text>', 'Display name. Default "<App> <Profile>"'],
+    ['--icon <file>', 'Your own icon instead of the app’s'],
+    ['--treatment <t>', 'auto | hue | ramp-light | ramp-dark | none'],
+    ['--arg / --env', 'Extra launch flag / KEY=VALUE'],
+  ]],
+  ['install · update · remove', [
+    ['--install / --yes', 'With add: get the app first, without asking'],
+    ['--via <how>', 'winget | brew | flatpak | download | page'],
+    ['--all / --force', 'Everything / even a profile that is open'],
+    ['--every <6h|90m>', 'With autoupdate: how often to check'],
+    ['--purge', 'With remove: delete the profile’s data too'],
+  ]],
+];
+
+const PALETTE = [
+  ['blue', '#1b91e3'], ['green', '#25a351'], ['purple', '#996fda'], ['amber', '#c08300'],
+  ['red', '#e0565b'], ['teal', '#009c9c'], ['pink', '#e05aa9'], ['gray', '#8f8f8f'],
+];
+
+function rr(g, x, y, w, h, r) { g.beginPath(); g.roundRect(x, y, w, h, r); }
+
+// Line-art marks, drawn in a 24×24 box scaled to `s`, centred on (x, y).
+function glyph(g, name, x, y, s = 20, color = BLUE) {
+  const u = s / 24;
+  g.save();
+  g.translate(x - s / 2, y - s / 2);
+  g.scale(u, u);
+  g.strokeStyle = color; g.fillStyle = color;
+  g.lineWidth = 2; g.lineCap = 'round'; g.lineJoin = 'round';
+  const P = (fn) => { g.beginPath(); fn(); g.stroke(); };
+  switch (name) {
+    case 'list':
+      for (const yy of [6, 12, 18]) {
+        P(() => { g.moveTo(9, yy); g.lineTo(20, yy); });
+        g.beginPath(); g.arc(4, yy, 1.6, 0, 7); g.fill();
+      }
+      break;
+    case 'install':
+      P(() => { g.moveTo(12, 3); g.lineTo(12, 14.5); });
+      P(() => { g.moveTo(7.5, 10); g.lineTo(12, 14.5); g.lineTo(16.5, 10); });
+      P(() => { g.moveTo(4, 17); g.lineTo(4, 20); g.lineTo(20, 20); g.lineTo(20, 17); });
+      break;
+    case 'add':
+      P(() => { g.roundRect(3, 3, 18, 18, 5); });
+      P(() => { g.moveTo(12, 8); g.lineTo(12, 16); g.moveTo(8, 12); g.lineTo(16, 12); });
+      break;
+    case 'remove':
+      P(() => { g.moveTo(4, 6.5); g.lineTo(20, 6.5); });
+      P(() => { g.moveTo(9.5, 6.5); g.lineTo(9.5, 4); g.lineTo(14.5, 4); g.lineTo(14.5, 6.5); });
+      P(() => { g.moveTo(6, 6.5); g.lineTo(7, 20); g.lineTo(17, 20); g.lineTo(18, 6.5); });
+      break;
+    case 'update':
+      P(() => { g.arc(12, 12, 8, Math.PI * 0.75, Math.PI * 0.2); });
+      P(() => { g.moveTo(17.4, 3.6); g.lineTo(17.8, 8.6); g.lineTo(12.8, 8.9); });
+      P(() => { g.moveTo(12, 8.5); g.lineTo(12, 13); g.lineTo(15.5, 15); });
+      break;
+    case 'clock':
+      P(() => { g.arc(12, 12, 8.5, 0, 7); });
+      P(() => { g.moveTo(12, 7); g.lineTo(12, 12.5); g.lineTo(16, 14.5); });
+      break;
+    case 'rebuild':
+      P(() => { g.arc(12, 12, 8, Math.PI * 0.62, Math.PI * 1.9); });
+      P(() => { g.moveTo(19.2, 8.4); g.lineTo(19.7, 13.2); g.lineTo(14.9, 12.8); });
+      P(() => { g.arc(12, 12, 3.2, 0, 7); });
+      break;
+    case 'open':
+      P(() => { g.moveTo(13, 4); g.lineTo(5, 4); g.lineTo(5, 19); g.lineTo(20, 19); g.lineTo(20, 11); });
+      P(() => { g.moveTo(12, 12); g.lineTo(20, 4); });
+      P(() => { g.moveTo(14.5, 4); g.lineTo(20, 4); g.lineTo(20, 9.5); });
+      break;
+    case 'ui':
+      P(() => { g.roundRect(3, 5, 18, 15, 3); });
+      P(() => { g.moveTo(3, 10); g.lineTo(21, 10); });
+      for (const cx of [6, 9, 12]) { g.beginPath(); g.arc(cx, 7.5, 0.9, 0, 7); g.fill(); }
+      break;
+    case 'icon':
+      P(() => { g.roundRect(3, 3, 18, 18, 5); });
+      g.save();
+      g.beginPath(); g.roundRect(3, 3, 18, 18, 5); g.clip();
+      g.beginPath(); g.moveTo(3, 21); g.lineTo(21, 3); g.lineTo(21, 21); g.closePath();
+      g.globalAlpha = 0.3; g.fill();
+      g.restore();
+      break;
+    case 'colors':
+      for (const [cx, cy] of [[9.5, 9.5], [14.5, 9.5], [12, 14.5]]) { g.beginPath(); g.arc(cx, cy, 4.6, 0, 7); g.stroke(); }
+      break;
+    case 'status':
+      P(() => { g.arc(12, 12, 8.5, 0, 7); });
+      P(() => { g.moveTo(8, 12.2); g.lineTo(11, 15.2); g.lineTo(16.5, 9); });
+      break;
+    case 'uninstall':
+      P(() => { g.arc(12, 12, 8.5, 0, 7); });
+      P(() => { g.moveTo(8.5, 12); g.lineTo(15.5, 12); });
+      break;
+    default: break;
+  }
+  g.restore();
+}
+
+const load = (src) => new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = src; });
+
+// One install, three logins: the same icon, recoloured, as the tool actually
+// produces it. The files are the ones the README banner already uses.
+async function illustration(g, x, y, w) {
+  rr(g, x, y, w, 132, 14); g.fillStyle = WASH; g.fill();
+  const [stock, ...tinted] = await Promise.all(
+    ['banner/claude.png', 'banner/claude-blue.png', 'banner/claude-green.png', 'banner/claude-purple.png'].map(load),
+  );
+  const top = y + 24, size = 58;
+  const drawTile = (im, tx, label, color) => {
+    g.save(); rr(g, tx, top, size, size, 13); g.clip(); g.drawImage(im, tx, top, size, size); g.restore();
+    g.textAlign = 'center'; g.font = '900 11px Nunito'; g.fillStyle = color;
+    g.letterSpacing = '0.6px';
+    g.fillText(label, tx + size / 2, top + size + 19);
+    g.letterSpacing = '0px';
+    g.textAlign = 'left';
+  };
+  drawTile(stock, x + 28, 'AS INSTALLED', FAINT);
+
+  const ax = x + 28 + size + 24;
+  g.strokeStyle = LINE; g.lineWidth = 2; g.lineCap = 'round';
+  g.beginPath(); g.moveTo(ax, top + size / 2); g.lineTo(ax + 32, top + size / 2); g.stroke();
+  g.beginPath(); g.moveTo(ax + 25, top + size / 2 - 5); g.lineTo(ax + 32, top + size / 2); g.lineTo(ax + 25, top + size / 2 + 5); g.stroke();
+
+  const startX = ax + 50;
+  [['WORK', '#1b91e3'], ['CLIENT A', '#25a351'], ['PERSONAL', '#996fda']].forEach(([label, color], i) => {
+    drawTile(tinted[i], startX + i * (size + 24), label, color);
+  });
+
+  const tx = startX + 3 * (size + 24) + 16;
+  g.fillStyle = INK; g.font = '900 16px Nunito';
+  g.fillText('One install. Three logins.', tx, top + 20);
+  g.fillStyle = MUTED; g.font = '700 14px Nunito';
+  g.fillText('Separate data, separate dock entries, and', tx, top + 42);
+  g.fillText('one icon recoloured so you can tell them apart.', tx, top + 61);
+}
+
+async function render(scale = 2) {
+  await document.fonts.load('900 44px Nunito');
+  await document.fonts.load('700 16px Nunito');
+  const c = document.getElementById('c');
+  c.width = W * scale; c.height = H * scale;
+  const g = c.getContext('2d');
+  g.setTransform(scale, 0, 0, scale, 0, 0);
+  g.fillStyle = '#ffffff'; g.fillRect(0, 0, W, H);
+  g.textBaseline = 'alphabetic';
+
+  // ---- masthead: the mark from the site, then the name
+  rr(g, 64, 42, 44, 44, 10); g.fillStyle = BLUE; g.fill();
+  rr(g, 74, 52, 15, 15, 4); g.fillStyle = 'rgba(255,255,255,0.55)'; g.fill();
+  rr(g, 83, 61, 15, 15, 4); g.fillStyle = '#ffffff'; g.fill();
+
+  g.fillStyle = INK; g.font = '900 44px Nunito'; g.letterSpacing = '-1px';
+  g.fillText('dupe', 124, 78);
+  const titleW = g.measureText('dupe').width;
+  g.letterSpacing = '0px';
+  g.fillStyle = MUTED; g.font = '700 18px Nunito';
+  g.fillText('every command, one page · macOS, Windows, Linux', 124 + titleW + 18, 78);
+  g.textAlign = 'right'; g.fillStyle = BLUE; g.font = '900 18px Nunito';
+  g.fillText('github.com/HKTITAN/dupe', W - 64, 78);
+  g.textAlign = 'left';
+
+  await illustration(g, 56, 106, W - 112);
+
+  // ---- commands
+  let y = 292;
+  g.fillStyle = MUTED; g.font = '900 13px Nunito'; g.letterSpacing = '1.4px';
+  g.fillText('COMMANDS', 64, y); g.letterSpacing = '0px';
+  y += 28;
+  for (const [name, args, mark, desc] of COMMANDS) {
+    rr(g, 56, y - 20, W - 112, 34, 8); g.fillStyle = WASH; g.fill();
+    glyph(g, mark, 78, y - 3, 19);
+    g.font = '400 17px ' + MONO;
+    g.fillStyle = BLUE; g.fillText('dupe ', 100, y + 2);
+    const nameX = 100 + g.measureText('dupe ').width;
+    g.fillStyle = INK; g.fillText(name, nameX, y + 2);
+    if (args) { g.fillStyle = MUTED; g.fillText(' ' + args, nameX + g.measureText(name).width, y + 2); }
+    g.fillStyle = MUTED; g.font = '700 16px Nunito';
+    g.fillText(desc, 500, y + 2);
+    y += 40;
+  }
+
+  // ---- examples
+  y += 24;
+  g.fillStyle = MUTED; g.font = '900 13px Nunito'; g.letterSpacing = '1.4px';
+  g.fillText('EXAMPLES', 64, y); g.letterSpacing = '0px';
+  y += 30;
+  for (const [cmd, effect] of EXAMPLES) {
+    g.fillStyle = BLUE; g.font = '400 15px ' + MONO;
+    g.fillText('$', 68, y);
+    g.fillStyle = INK; g.fillText(cmd, 90, y);
+    g.fillStyle = MUTED; g.font = '700 15px Nunito';
+    g.fillText(effect, 560, y);
+    y += 32;
+  }
+
+  // ---- options, two columns
+  y += 14;
+  g.fillStyle = MUTED; g.font = '900 13px Nunito'; g.letterSpacing = '1.4px';
+  g.fillText('OPTIONS', 64, y); g.letterSpacing = '0px';
+  y += 28;
+  const colX = [64, 636];
+  OPTIONS.forEach(([heading, rows], i) => {
+    let cy = y;
+    g.fillStyle = INK; g.font = '900 15px Nunito';
+    g.fillText(heading, colX[i], cy);
+    cy += 24;
+    for (const [flag, meaning] of rows) {
+      g.fillStyle = INK; g.font = '400 14px ' + MONO;
+      g.fillText(flag, colX[i], cy);
+      g.fillStyle = MUTED; g.font = '700 14px Nunito';
+      g.fillText(meaning, colX[i] + 186, cy);
+      cy += 26;
+    }
+  });
+  y += 24 + 5 * 26;
+
+  // ---- palette
+  y += 26;
+  g.strokeStyle = LINE; g.lineWidth = 2;
+  g.beginPath(); g.moveTo(64, y - 26); g.lineTo(W - 64, y - 26); g.stroke();
+  let px = 64;
+  for (const [name, hex] of PALETTE) {
+    rr(g, px, y - 4, 18, 18, 6); g.fillStyle = hex; g.fill();
+    g.fillStyle = MUTED; g.font = '700 14px Nunito';
+    g.fillText(name, px + 26, y + 10);
+    px += 26 + g.measureText(name).width + 22;
+  }
+  g.textAlign = 'right'; g.fillStyle = FAINT; g.font = '700 13px Nunito';
+  g.fillText('one lightness, one chroma, eight hues', W - 64, y + 10);
+  g.textAlign = 'left';
+
+  // ---- the point of the whole thing
+  y += 62;
+  rr(g, 56, y - 26, W - 112, 70, 12); g.fillStyle = WASH; g.fill();
+  glyph(g, 'clock', 92, y + 6, 24, BLUE);
+  g.fillStyle = INK; g.font = '900 16px Nunito';
+  g.fillText('Profiles keep themselves current.', 122, y);
+  g.fillStyle = MUTED; g.font = '700 15px Nunito';
+  g.fillText('A profile catches up with the app it copies the moment you open it, and dupe autoupdate on does it before you notice.', 122, y + 24);
+  return c;
+}
+
+async function blobOf() {
+  const c = await render(2);
+  return new Promise((res) => c.toBlob(res, 'image/png'));
+}
+
+document.getElementById('save').addEventListener('click', async () => {
+  const msg = document.getElementById('msg');
+  msg.textContent = 'rendering…';
+  const blob = await blobOf();
+  const r = await fetch('/api/dev/png?name=cheatsheet.png', { method: 'POST', body: blob });
+  const j = await r.json().catch(() => ({}));
+  msg.textContent = r.ok ? `saved ${(j.bytes / 1024).toFixed(0)} KB` : `failed: ${j.error || r.status}`;
+});
+
+document.getElementById('download').addEventListener('click', async () => {
+  const blob = await blobOf();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = 'dupe-cheatsheet.png';
+  document.body.appendChild(a); a.click(); a.remove();
+});
+
+render(2);
+</script>
+</body>
+</html>

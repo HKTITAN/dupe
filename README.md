@@ -77,6 +77,8 @@ dupe colors                    The palette
 dupe uninstall                 Remove every profile and everything dupe has written
 ```
 
+Every command on one page: [the cheatsheet](docs/cheatsheet.png).
+
 `<app>` is a preset id or a path to the app itself (`/Applications/Foo.app`, `C:\…\Foo.exe`, `foo.desktop`, `Foo.AppImage`). Presets know where each app installs and what extra state has to be pinned:
 
 | Preset | Extra isolation | Verified |
