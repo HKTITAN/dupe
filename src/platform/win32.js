@@ -24,6 +24,19 @@ function expandEnv(p) {
   return p.replace(/%([^%]+)%/g, (m, k) => process.env[k] ?? process.env[k.toUpperCase()] ?? m);
 }
 
+// Newest first, comparing version numbers as numbers. A plain string sort
+// puts app-1.0.9 ahead of app-1.0.10, which would pin a profile to an old
+// build the moment a version part gains a digit — and Squirrel apps like
+// Discord number in the thousands, so that happens.
+function byVersionDesc(a, b) {
+  const na = a.match(/\d+/g) || [], nb = b.match(/\d+/g) || [];
+  for (let i = 0; i < Math.max(na.length, nb.length); i++) {
+    const d = (Number(nb[i]) || 0) - (Number(na[i]) || 0);
+    if (d) return d;
+  }
+  return a < b ? 1 : a > b ? -1 : 0;
+}
+
 // Resolve a path with a single `*` directory segment (Squirrel's app-<ver>).
 function globOne(p) {
   if (!p.includes('*')) return fs.existsSync(p) ? p : null;
@@ -32,9 +45,37 @@ function globOne(p) {
   const base = parts.slice(0, i).join(path.sep);
   if (!fs.existsSync(base)) return null;
   const rx = new RegExp('^' + parts[i].replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*') + '$', 'i');
-  const matches = fs.readdirSync(base).filter((n) => rx.test(n)).sort().reverse();
+  const matches = fs.readdirSync(base).filter((n) => rx.test(n)).sort(byVersionDesc);
   for (const m of matches) {
     const candidate = [base, m, ...parts.slice(i + 1)].join(path.sep);
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+/**
+ * The current build of an app that installs into <root>pp-<version>\.
+ *
+ * Squirrel adds a new folder on every update and leaves the old one behind
+ * for a while, so a path recorded once is where the app WAS, not where it
+ * is. A preset copes because it carries a glob; an app found by discovery
+ * is recorded at the exact path it was seen at, and without this the first
+ * update leaves its profile reading as "not installed here any more" —
+ * unrebuildable, for an app sitting right there.
+ *
+ * The newest sibling wins even when the recorded one still exists, which is
+ * what a preset's glob already does and what "the app behind a profile is
+ * never out of date" has to mean. Null for any layout that is not this one.
+ */
+function newestBuild(exe) {
+  const dir = path.dirname(exe);
+  if (!/^app-\d/i.test(path.basename(dir))) return null;
+  const root = path.dirname(dir);
+  const name = path.basename(exe);
+  let siblings = [];
+  try { siblings = fs.readdirSync(root, { withFileTypes: true }).filter((e) => e.isDirectory() && /^app-\d/i.test(e.name)).map((e) => e.name); } catch { return null; }
+  for (const s of siblings.sort(byVersionDesc)) {
+    const candidate = path.join(root, s, name);
     if (fs.existsSync(candidate)) return candidate;
   }
   return null;
@@ -91,6 +132,8 @@ function executionAlias(root) {
 export function locate(app) {
   if (app.custom) {
     const p = path.resolve(app.source);
+    const newest = newestBuild(p);
+    if (newest) return { exe: newest, kind: 'path' };
     return fs.existsSync(p) ? { exe: p, kind: 'path' } : null;
   }
   const w = app.win32 || {};

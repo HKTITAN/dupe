@@ -348,8 +348,11 @@ static class Launcher
         }
         if (Config.ExePath.Length > 0)
         {
-            if (File.Exists(Config.ExePath)) return Config.ExePath;
-            // Squirrel layout: <root>\app-<version>\<exe>. Pick the newest sibling.
+            // Squirrel layout: <root>\app-<version>\<exe>. The newest sibling wins
+            // even when the baked path still exists, because Squirrel leaves the
+            // old folder behind for a while after an update and the profile should
+            // follow the app, not the folder it was built from. dupe's own locate()
+            // resolves it the same way, so both sides agree which build is current.
             string dir = Path.GetDirectoryName(Config.ExePath);
             string parent = dir == null ? null : Path.GetDirectoryName(dir);
             string exeName = Path.GetFileName(Config.ExePath);
@@ -365,6 +368,7 @@ static class Launcher
                 }
                 if (best != null) return best;
             }
+            if (File.Exists(Config.ExePath)) return Config.ExePath;
         }
         return null;
     }
