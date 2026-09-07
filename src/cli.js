@@ -7,6 +7,7 @@ import * as upd from './update.js';
 import * as schedule from './schedule.js';
 import * as inst from './install.js';
 import { VERSION } from './embedded.js';
+import { bold, dim, ink, pad, swatch } from './tty.js';
 
 const HELP = `dupe ${VERSION} — run any desktop app as several isolated, colour-coded profiles
 
@@ -89,6 +90,7 @@ export async function main(argv) {
     case 'add': {
       if (!rest[0] || !rest[1]) throw new Error('Usage: dupe add <app> <profile>');
       if (values.install) await install(rest[0], { ...values, yes: true }, log);
+      const existed = !!core.findProfile((await import('./store.js')).loadStore(), rest[0], rest[1]);
       let record;
       try {
         record = await core.add(rest[0], rest[1], values, log);
@@ -98,11 +100,23 @@ export async function main(argv) {
         const advice = await inst.suggest(rest[0]);
         throw advice ? new Error(`${e.message}\n\n${advice}`) : e;
       }
-      console.log(`\nBuilt "${record.label}". ${core.hint(record)}`);
+      console.log(`\n${swatch(record.color)} ${existed ? 'Updated' : 'Built'} ${bold(`"${record.label}"`)}. ${core.hint(record)}`);
       return 0;
     }
     case 'remove': case 'rm': {
       if (!rest[0] || !rest[1]) throw new Error('Usage: dupe remove <app> <profile> [--purge]');
+      const store = (await import('./store.js')).loadStore();
+      const doomed = core.findProfile(store, rest[0], rest[1]);
+      if (!doomed) throw new Error(`No profile ${rest[0]}/${rest[1]}. Run dupe list.`);
+      // --purge is the irreversible one: it takes the logins with it, so a
+      // terminal is asked first. A script that says --purge means it, and is
+      // not stopped by a question nobody is there to answer.
+      if (values.purge && !values.yes && process.stdin.isTTY && process.stdout.isTTY) {
+        console.log(`${swatch(doomed.color)} ${bold(doomed.label)}`);
+        console.log(`  ${doomed.launcher || doomed.bundle || doomed.desktop}`);
+        console.log(`  ${doomed.dataDir}  ${bold('and everything in it, including the login')}`);
+        if (!(await confirm('\nDelete both?'))) { console.log('Left alone.'); return 0; }
+      }
       const record = await core.remove(rest[0], rest[1], { purge: values.purge }, log);
       console.log(values.purge ? '\nRemoved, including its data.' : `\nRemoved. Its data is still at ${record.dataDir}; pass --purge to delete that too.`);
       return 0;
@@ -135,19 +149,33 @@ export async function main(argv) {
 
 async function list() {
   const s = await core.state();
-  console.log('Presets');
+  console.log(bold('Presets'));
   const apps = await inst.annotate(s.apps);
   for (const app of apps) {
-    const mark = app.found ? '●' : '○';
-    const how = app.install ? `  ·  dupe install ${app.id}` : '';
-    console.log(`  ${mark} ${app.id.padEnd(10)} ${app.name.padEnd(20)} ${app.found ? app.found : `not installed${how}`}`);
+    const how = app.install ? dim(`  ·  dupe install ${app.id}`) : '';
+    const where = app.found ? dim(app.found) : `${dim('not installed')}${how}`;
+    console.log(`  ${app.found ? '●' : dim('○')} ${app.id.padEnd(10)} ${app.name.padEnd(20)} ${where}`);
   }
-  console.log('\nProfiles');
-  if (!s.profiles.length) { console.log('  none yet — try: dupe add claude work'); return 0; }
+  console.log(`\n${bold('Profiles')}`);
+  if (!s.profiles.length) { console.log(dim('  none yet — try: dupe add claude work')); return 0; }
+  // Which are behind, so one command answers both "what have I built" and
+  // "is any of it stale". Best effort: a list that can't reach an app is
+  // still a list.
+  const behind = new Map();
+  try {
+    for (const p of (await upd.check()).profiles) behind.set(`${p.app}/${p.profile}`, p);
+  } catch { /* fall back to showing what was built */ }
   for (const p of s.profiles) {
-    const target = p.launcher || p.bundle || p.desktop;
-    console.log(`  ${p.color}  ${p.app}/${p.profile}`.padEnd(32) + ` "${p.label}"  ${target}`);
+    const key = `${p.app}/${p.profile}`;
+    const state = behind.get(key);
+    const level = !state || state.state === 'current';
+    const note = !state ? dim(p.launcher || p.bundle || p.desktop)
+      : state.state === 'current' ? dim(state.version ? `current · ${state.version}` : 'current')
+        : state.state === 'missing' ? dim(`${p.appName} isn't installed here any more`)
+          : ink(p.color, `behind — ${state.why || 'the app has changed'}`);
+    console.log(`  ${swatch(p.color, { filled: level })} ${pad(bold(p.label), 26)} ${pad(dim(key), 24)} ${note}`);
   }
+  if ([...behind.values()].some((p) => p.state === 'stale')) console.log(dim('\n  dupe update brings them level. dupe status says more.'));
   return 0;
 }
 
@@ -192,11 +220,11 @@ async function status(rest, values) {
   if (values.json) { console.log(JSON.stringify(s, null, 2)); return 0; }
   if (!s.profiles.length) { console.log('No profiles yet — try: dupe add claude work'); return 0; }
   for (const p of s.profiles) {
-    const mark = p.state === 'current' ? '●' : p.state === 'stale' ? '○' : '·';
-    const note = p.state === 'current' ? (p.version ? `current  ${p.version}` : 'current')
-      : p.state === 'missing' ? `${p.appName} isn't installed here any more`
-        : `behind — ${p.why || 'the app has changed'}${p.running ? ', and open right now' : ''}`;
-    console.log(`  ${mark} ${`${p.app}/${p.profile}`.padEnd(22)} ${note}`);
+    const mark = p.state === 'missing' ? dim('·') : swatch(p.color, { filled: p.state === 'current' });
+    const note = p.state === 'current' ? dim(p.version ? `current · ${p.version}` : 'current')
+      : p.state === 'missing' ? dim(`${p.appName} isn't installed here any more`)
+        : `behind — ${p.why || 'the app has changed'}${p.running ? dim(', and open right now') : ''}`;
+    console.log(`  ${mark} ${pad(bold(p.label), 26)} ${pad(dim(`${p.app}/${p.profile}`), 24)} ${note}`);
   }
   const auto = schedule.status();
   console.log('');
@@ -307,8 +335,8 @@ function report(s) {
 }
 
 function colors() {
-  for (const name of ORDER) console.log(`  ${name.padEnd(8)} ${NAMED[name]}`);
-  console.log('\nAll sit at the same OKLCH lightness and chroma, so a row of profiles reads as one set.');
+  for (const name of ORDER) console.log(`  ${swatch(NAMED[name])} ${ink(NAMED[name], name.padEnd(8))} ${dim(NAMED[name])}`);
+  console.log(dim('\nAll sit at the same OKLCH lightness and chroma, so a row of profiles reads as one set.'));
   return 0;
 }
 
