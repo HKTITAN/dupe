@@ -36,6 +36,7 @@ Options for add / rebuild
   --arg <flag>          Extra launch flag (repeatable)
   --env KEY=VALUE       Extra environment variable (repeatable)
   --icon <file>         Use this icon (.png .ico .icns .exe) instead of the app's own
+  --force               Rebuild a profile that's open right now (it will be closed)
   --purge               With remove: also delete the profile's data
 
 Options for install (and add --install)
@@ -47,6 +48,8 @@ Options for status / update
   --all                 Rebuild every profile, not only the ones that are behind
   --force               Rebuild a profile even while it's open (it will be closed)
   --quiet               Say nothing; write to ~/.dupe/logs/autoupdate.log instead
+
+Nothing that rebuilds will close an app you have open unless you pass --force.
 
 Options for autoupdate
   --every <6h|90m>      How often to check. 15m to 24h; the default is every 6 hours.

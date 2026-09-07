@@ -82,6 +82,11 @@ export function prepare(app, profileName, values, store, existing) {
   const used = store.profiles.filter((p) => p.app === app.id && p.profile !== profile).map((p) => p.color);
   const color = resolveColor(values.color) || (existing && existing.color) || nextColor(used);
   const label = checkLabel(values.label || (existing && existing.label) || `${app.name} ${titleCase(profile)}`);
+  // On macOS the clone is `<label>.app`, so two profiles sharing a label
+  // share a path and the second build deletes the first. Elsewhere it is
+  // merely confusing to have two dock entries with one name.
+  const clash = store.profiles.find((p) => p.label === label && !(p.app === app.id && p.profile === profile));
+  if (clash) throw new Error(`"${label}" is already the name of ${clash.app}/${clash.profile}. Pass a different --label.`);
   const treatment = values.treatment || (existing && existing.treatment) || 'auto';
   if (!TREATMENTS.has(treatment)) throw new Error(`Treatment must be one of ${[...TREATMENTS].join(', ')}.`);
   // A custom icon may arrive as a path (--icon) or as base64 PNG data from
@@ -175,11 +180,23 @@ export async function state() {
   };
 }
 
+/** Rebuilding replaces the thing you are using: on macOS the bundle the app
+ *  is running out of, on Windows the launcher stamping its windows. `dupe
+ *  update` has always deferred; `add` and `rebuild` went ahead and killed it
+ *  without a word, which is not what the README promises. */
+export function refuseIfOpen(be, record, values) {
+  if (!record || values.force) return;
+  let open = false;
+  try { open = !!(be.running && be.running(record)); } catch { open = false; }
+  if (open) throw new Error(`"${record.label}" is open right now, and rebuilding it would close it. Quit it first, or pass --force.`);
+}
+
 export async function add(appSpec, profileName, values = {}, log = () => {}) {
   const be = await backend();
   const app = resolveApp(appSpec, be);
   const store = loadStore();
   const existing = store.profiles.find((p) => p.app === app.id && p.profile === slug(profileName));
+  refuseIfOpen(be, existing, values);
   const opts = prepare(app, profileName, values, store, existing);
   log(`${app.name} · ${opts.profile}  "${opts.label}"  ${opts.color}`);
   const sure = isolation(app, be);
@@ -188,6 +205,9 @@ export async function add(appSpec, profileName, values = {}, log = () => {}) {
   record.builtBy = VERSION;
   record.isolationChecked = sure.confident;
   commitProfile(record);
+  // A label change moves the launcher; the one it moved from is not a
+  // profile any more and should not still be sitting there working.
+  if (existing && be.removeStale) { try { be.removeStale(existing, record, log); } catch { /* best effort */ } }
   schedule.refresh(); // macOS watches the bundles it was built from
   return record;
 }
@@ -230,6 +250,13 @@ export async function rebuild(appSpec, values = {}, log = () => {}) {
   const results = [];
   for (const old of targets) {
     const app = old.custom ? customApp(old.source, old.appName) : (findApp(old.app) || customApp(old.source, old.appName));
+    try {
+      refuseIfOpen(be, old, values);
+    } catch (e) {
+      log(`  skipped     ${e.message}`);
+      results.push({ ok: false, app: old.app, profile: old.profile, error: e.message });
+      continue;
+    }
     const opts = prepare(app, old.profile, values, store, old);
     log(`${app.name} · ${opts.profile}  "${opts.label}"  ${opts.color}`);
     try {
@@ -237,6 +264,7 @@ export async function rebuild(appSpec, values = {}, log = () => {}) {
       if (!record.sourceStamp) record.sourceStamp = stampId(be, app);
       record.builtBy = VERSION;
       commitProfile(record, { ifPresent: true });
+      if (be.removeStale) { try { be.removeStale(old, record, log); } catch { /* best effort */ } }
       results.push({ ok: true, record });
     } catch (e) {
       log(`  skipped     ${e.message}`);

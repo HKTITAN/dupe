@@ -282,6 +282,22 @@ function killLauncher(exe) {
   spawnSync('taskkill', ['/F', '/IM', path.basename(exe)], { stdio: 'ignore' });
 }
 
+/** The launcher and Start Menu entry a previous build left behind. Both are
+ *  named after the label, and the directory is not, so renaming a profile
+ *  used to leave a second working launcher and a second shortcut. */
+export function removeStale(old, built, log = () => {}) {
+  if (!old || !built) return;
+  if (old.launcher && old.launcher !== built.launcher && fs.existsSync(old.launcher)) {
+    killLauncher(old.launcher);
+    fs.rmSync(old.launcher, { force: true });
+    log(`  replaced    ${old.launcher}`);
+  }
+  if (old.shortcut && old.shortcut !== built.shortcut && fs.existsSync(old.shortcut)) {
+    fs.rmSync(old.shortcut, { force: true });
+    log(`  replaced    ${old.shortcut}`);
+  }
+}
+
 export function remove(record, { purge = false } = {}, log = () => {}) {
   if (record.launcher) killLauncher(record.launcher);
   if (record.shortcut && fs.existsSync(record.shortcut)) { fs.rmSync(record.shortcut); log(`  removed     ${record.shortcut}`); }

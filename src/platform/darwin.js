@@ -98,6 +98,14 @@ export function build(app, opts, log = () => {}) {
   if (path.resolve(dup) === path.resolve(src)) {
     throw new Error(`A profile called "${opts.label}" would land on ${src}, the app it is copied from. Pass --label to give it a different name.`);
   }
+  // The clone's path is `<label>.app` beside the stock app, and the label is
+  // whatever the user typed — so `--label Slack` aimed the build at
+  // /Applications/Slack.app, and the rm below would have taken it. Only a
+  // bundle dupe built may be replaced, and dupe's clones say so in their
+  // own Info.plist.
+  if (fs.existsSync(dup) && !plistTry(path.join(dup, 'Contents', 'Info.plist'), 'Print :X-Dupe-Profile')) {
+    throw new Error(`${dup} already exists and dupe didn't build it. Pick a different --label.`);
+  }
   // Everything is built here and moved into place at the end, so a failure
   // half way leaves the profile you already had, not a broken bundle.
   const staging = `${dup}.dupe-building`;
@@ -172,6 +180,11 @@ export function build(app, opts, log = () => {}) {
     if (!plistTry(dupInfo, `Set :CFBundleIconFile ${iconFile}`)) plistTry(dupInfo, `Add :CFBundleIconFile string ${iconFile}`);
     const newId = `${oldId}.${opts.profile}`;
     plist(dupInfo, `Set :CFBundleIdentifier ${newId}`);
+    // dupe's signature on its own work: what tells a later build that this
+    // bundle may be replaced, and discovery that it is not an app to offer.
+    for (const [k, v] of [['X-Dupe-App', app.id], ['X-Dupe-Profile', opts.profile]]) {
+      if (!plistTry(dupInfo, `Set :${k} ${v}`)) plistTry(dupInfo, `Add :${k} string ${v}`);
+    }
     if (!plistTry(dupInfo, 'Set :SUEnableAutomaticChecks false')) plistTry(dupInfo, 'Add :SUEnableAutomaticChecks bool false');
     fs.rmSync(path.join(staging, 'Contents', 'Resources', 'app-update.yml'), { force: true });
 
@@ -253,6 +266,18 @@ export function selfHealScript(app, opts, srcStamp) {
   ].join('\n');
 }
 
+/** Artifacts the previous build left that the new one does not use. A label
+ *  change moves the bundle, and without this the old one stays in
+ *  /Applications: working, untracked, and re-running `dupe update` for a
+ *  profile that no longer points at it on every launch. */
+export function removeStale(old, built, log = () => {}) {
+  if (!old || !old.bundle || old.bundle === (built && built.bundle)) return;
+  if (!fs.existsSync(old.bundle)) return;
+  killClone(old.bundle);
+  fs.rmSync(old.bundle, { recursive: true, force: true });
+  log(`  replaced    ${old.bundle}`);
+}
+
 export function remove(record, { purge = false } = {}, log = () => {}) {
   if (record.bundle && fs.existsSync(record.bundle)) {
     killClone(record.bundle);
@@ -327,10 +352,24 @@ const stampScript = [
  *  launcher script, and that script matches the same pattern — killing it, or
  *  counting it as "someone is using this", would deadlock the update. */
 function clonePids(bundle) {
-  const r = spawnSync('pgrep', ['-f', `${bundle}/Contents/MacOS`], { encoding: 'utf8' });
+  // Not pgrep -f: its argument is an extended regular expression, and the
+  // bundle path contains a label the user chose. "Claude (Work)" became a
+  // capture group and matched nothing, so running() said the app was closed
+  // while it was open and killClone() killed nothing — the scheduled agent
+  // would rebuild a profile mid-sentence and delete the bundle out from
+  // under the live process. An unbalanced [ made pgrep exit non-zero, same
+  // outcome. ps plus an exact substring test has no such reading.
+  const r = spawnSync('ps', ['-Ao', 'pid=,command='], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
   if (r.status !== 0) return [];
+  const needle = `${bundle}/Contents/MacOS`;
   const mine = ancestors();
-  return (r.stdout || '').split(/\s+/).map(Number).filter((pid) => pid && !mine.has(pid));
+  const pids = [];
+  for (const line of (r.stdout || '').split('\n')) {
+    if (!line.includes(needle)) continue;
+    const pid = parseInt(line, 10);
+    if (pid && !mine.has(pid)) pids.push(pid);
+  }
+  return pids;
 }
 
 function ancestors() {
@@ -347,9 +386,17 @@ function ancestors() {
 }
 
 function killClone(bundle) {
-  for (const pid of clonePids(bundle)) {
-    try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ }
+  const pids = clonePids(bundle);
+  if (!pids.length) return;
+  // Ask before insisting: an Electron app given SIGTERM writes its session
+  // out, and the profile's data directory is the thing we are trying not to
+  // damage. SIGKILL is the fallback for one that will not go.
+  for (const pid of pids) { try { process.kill(pid, 'SIGTERM'); } catch { /* already gone */ } }
+  const until = Date.now() + 3000;
+  while (Date.now() < until && clonePids(bundle).length) {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
   }
+  for (const pid of clonePids(bundle)) { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } }
 }
 
 /** True while someone else has this clone open. Rebuilding replaces the
@@ -369,8 +416,14 @@ export function discover() {
     for (const name of entries) {
       if (!name.endsWith('.app')) continue;
       const bundle = path.join(dir, name);
-      if (!fs.existsSync(path.join(bundle, 'Contents', 'Info.plist'))) continue;
+      const info = path.join(bundle, 'Contents', 'Info.plist');
+      if (!fs.existsSync(info)) continue;
       if (!isElectron(bundle)) continue;
+      // A clone is a byte copy of an Electron app, so it looks exactly like
+      // one. Offering it back would let someone clone a clone, and the
+      // build would rename the launcher script as if it were the real
+      // binary — losing the real one.
+      if (plistTry(info, 'Print :X-Dupe-Profile')) continue;
       out.push({ name: name.replace(/\.app$/, ''), path: bundle });
     }
   }

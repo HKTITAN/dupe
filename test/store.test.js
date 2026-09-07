@@ -127,4 +127,34 @@ test('the suggested label in the error is one that would work', () => {
   }
 });
 
+test('two profiles cannot share a display name', async () => {
+  reset();
+  const core = await import('../src/core.js');
+  const { findApp } = await import('../src/apps.js');
+  const app = findApp('claude');
+  const s = store.loadStore();
+  store.upsertProfile(s, { ...profile('claude', 'work'), label: 'Claude Work' });
+
+  // On macOS the clone is <label>.app beside the stock app, so the same
+  // label is the same path and the second build deletes the first.
+  assert.throws(
+    () => core.prepare(app, 'personal', { label: 'Claude Work' }, s, null),
+    /already the name of claude\/work/,
+  );
+  // The profile that owns the label may of course keep it.
+  assert.equal(core.prepare(app, 'work', { label: 'Claude Work' }, s, s.profiles[0]).label, 'Claude Work');
+});
+
+test('a rebuild refuses to close a profile that is open', async () => {
+  const core = await import('../src/core.js');
+  const open = { label: 'Busy One', app: 'x', profile: 'y' };
+  const be = { running: () => true };
+  assert.throws(() => core.refuseIfOpen(be, open, {}), /open right now/);
+  // --force is the way through, and a closed profile never asks.
+  assert.doesNotThrow(() => core.refuseIfOpen(be, open, { force: true }));
+  assert.doesNotThrow(() => core.refuseIfOpen({ running: () => false }, open, {}));
+  // A backend that cannot tell must not block the build.
+  assert.doesNotThrow(() => core.refuseIfOpen({ running: () => { throw new Error('no'); } }, open, {}));
+});
+
 test.after(() => fs.rmSync(HOME, { recursive: true, force: true }));

@@ -260,6 +260,14 @@ function quote(s) {
   return /[\s"'\\$`]/.test(s) ? `"${String(s).replace(/(["\\$`])/g, '\\$1')}"` : s;
 }
 
+/** Nothing to do in practice — the entry and icon names are derived from
+ *  the app and profile ids, not the label, so a rename reuses them — but the
+ *  contract is the same on all three platforms. */
+export function removeStale(old, built, log = () => {}) {
+  if (!old || !built || !old.desktop || old.desktop === built.desktop) return;
+  if (fs.existsSync(old.desktop)) { fs.rmSync(old.desktop, { force: true }); log(`  replaced    ${old.desktop}`); }
+}
+
 export function remove(record, { purge = false } = {}, log = () => {}) {
   if (record.desktop && fs.existsSync(record.desktop)) { fs.rmSync(record.desktop); log(`  removed     ${record.desktop}`); }
   if (record.iconName) {
