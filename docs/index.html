@@ -172,6 +172,7 @@
   .prow { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 12px 14px; border: 2px solid var(--swan); border-bottom-width: 4px; border-radius: var(--radius-tile); background: var(--snow); }
   .prow > img { width: 44px; height: 44px; border-radius: 11px; background: var(--polar); flex: none; }
   .prow .t { flex: 1 1 160px; min-width: 0; }
+  #apps[aria-busy="true"] { opacity: .5; pointer-events: none; }
   .prow .t b { display: block; }
   .prow .t b .behind { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 800; letter-spacing: .01em;
     padding: 2px 8px; border-radius: 999px; border: 2px solid currentColor; margin-left: 8px; vertical-align: 1px; }
@@ -589,7 +590,23 @@ $('#build').addEventListener('click', async () => {
   const label = $('#plabel').value.trim() || $('#plabel').placeholder;
   const out = $('#build-out'); out.hidden = true;
   if (pickedApp === '__custom' && !app.path) { out.className = 'notice err'; out.textContent = "Couldn't build. Enter the path to the app first."; out.hidden = false; $('#cpath').focus(); return; }
-  const btn = $('#build'); btn.disabled = true; btn.querySelector('span').textContent = 'Building…';
+  const btn = $('#build'); btn.disabled = true;
+  // A build is seconds on Windows and Linux and can be a minute on macOS,
+  // where the whole app bundle is copied and re-signed. The button used to
+  // say "Building…" and freeze, which reads as broken rather than busy, so
+  // say what is happening and keep a clock running.
+  const steps = live.platform === 'darwin'
+    ? ['Recolouring the icon', 'Copying the app', 'Writing the launcher', 'Re-signing the copy']
+    : ['Recolouring the icon', 'Building the launcher', 'Adding it to the menu'];
+  const started = Date.now();
+  out.className = 'notice'; out.hidden = false;
+  const tick = setInterval(() => {
+    const secs = Math.round((Date.now() - started) / 1000);
+    const step = steps[Math.min(steps.length - 1, Math.floor(secs / 8))];
+    out.textContent = `${step}…  ${secs}s`
+      + (live.platform === 'darwin' && secs > 12 ? '  ·  macOS re-signs the whole bundle, which takes about a minute for a big app.' : '');
+  }, 250);
+  $('#apps').setAttribute('aria-busy', 'true');
   try {
     const body = { app: pickedApp === '__custom' ? app.path : app.id, profile, label, color: pcolor, treatment: customIcon && !$('#precolor').checked ? 'none' : 'auto' };
     if (customIcon) body.iconData = b64(customIcon.png);
@@ -611,6 +628,8 @@ $('#build').addEventListener('click', async () => {
   } catch (e) {
     out.className = 'notice err'; out.textContent = `Couldn't build. ${e.message}`; out.hidden = false;
   } finally {
+    clearInterval(tick);
+    $('#apps').removeAttribute('aria-busy');
     btn.disabled = false; btn.querySelector('span').textContent = 'Build profile';
   }
 });
