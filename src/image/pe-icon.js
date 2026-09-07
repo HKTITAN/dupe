@@ -6,16 +6,22 @@ import { decodeIconImage } from './ico.js';
 
 const RT_ICON = 3, RT_GROUP_ICON = 14;
 
-function readAt(fd, offset, length) {
-  const buf = Buffer.alloc(length);
-  const n = fs.readSync(fd, buf, 0, length, offset);
+// Every length here comes out of the file's own headers, so each one is
+// clamped to what the file actually holds before it becomes an allocation.
+// Buffer.alloc zero-fills, so an unclamped SizeOfRawData is memory really
+// touched: a 5KB executable could ask for 2GB.
+function readAt(fd, offset, length, limit = Infinity) {
+  const want = Math.max(0, Math.min(length, limit));
+  const buf = Buffer.alloc(want);
+  const n = want ? fs.readSync(fd, buf, 0, want, offset) : 0;
   return buf.subarray(0, n);
 }
 
 export function readPeIcons(exePath) {
   const fd = fs.openSync(exePath, 'r');
   try {
-    const head = readAt(fd, 0, 8192);
+    const fileSize = fs.fstatSync(fd).size;
+    const head = readAt(fd, 0, 8192, fileSize);
     if (head.toString('latin1', 0, 2) !== 'MZ') throw new Error('Not a PE file');
     const pe = head.readUInt32LE(0x3c);
     if (head.toString('latin1', pe, pe + 4) !== 'PE\0\0') throw new Error('Bad PE signature');
@@ -28,6 +34,9 @@ export function readPeIcons(exePath) {
     const rsrcRva = head.readUInt32LE(opt + ddOffset + 2 * 8);
     if (!rsrcRva) throw new Error('No resource section');
     const secTable = opt + optSize;
+    // The section table has to be inside the 8KB we read, or the reads below
+    // walk off the end of the buffer with a raw RangeError.
+    if (secTable < 0 || secTable + numSections * 40 > head.length) throw new Error('PE section table is past the headers dupe read');
     let section = null;
     for (let i = 0; i < numSections; i++) {
       const s = secTable + i * 40;
@@ -36,29 +45,38 @@ export function readPeIcons(exePath) {
       if (rsrcRva >= va && rsrcRva < va + Math.max(vsize, rawSize)) { section = { va, rawSize, rawPtr }; break; }
     }
     if (!section) throw new Error('Resource section not found');
-    const rsrc = readAt(fd, section.rawPtr, section.rawSize);
+    if (section.rawPtr >= fileSize) throw new Error('Resource section starts outside the file');
+    const rsrc = readAt(fd, section.rawPtr, section.rawSize, fileSize - section.rawPtr);
     const base = rsrcRva - section.va; // offset of the root directory inside rsrc
 
     function dirEntries(off) {
+      if (off < 0 || off + 16 > rsrc.length) return [];
       const named = rsrc.readUInt16LE(off + 12), ids = rsrc.readUInt16LE(off + 14);
       const out = [];
       for (let i = 0; i < named + ids; i++) {
         const e = off + 16 + i * 8;
+        if (e + 8 > rsrc.length) break;
         out.push({ id: rsrc.readUInt32LE(e), off: rsrc.readUInt32LE(e + 4) });
       }
       return out;
     }
-    // Descend through name -> language subdirectories to the data entry.
+    // Descend through name -> language subdirectories to the data entry. The
+    // real tree is three deep — type, name, language — and a subdirectory
+    // offset pointing back at its own directory used to spin here forever,
+    // synchronously, which stops `dupe ui` answering at all.
     function leafData(entry) {
       let off = entry.off;
-      while (off & 0x80000000) {
+      for (let depth = 0; off & 0x80000000; depth++) {
+        if (depth >= 4) return null;
         const kids = dirEntries(off & 0x7fffffff);
         if (!kids.length) return null;
         off = kids[0].off;
       }
+      if (off < 0 || off + 8 > rsrc.length) return null;
       const rva = rsrc.readUInt32LE(off), size = rsrc.readUInt32LE(off + 4);
       const start = rva - section.va;
-      return rsrc.subarray(start, start + size);
+      if (start < 0 || start >= rsrc.length) return null;
+      return rsrc.subarray(start, start + Math.min(size, rsrc.length - start));
     }
     const types = dirEntries(base);
     const groups = types.find((t) => t.id === RT_GROUP_ICON);
@@ -73,7 +91,9 @@ export function readPeIcons(exePath) {
     for (const g of dirEntries(groups.off & 0x7fffffff)) {
       const grp = leafData(g);
       if (!grp) continue;
-      const count = grp.readUInt16LE(4);
+      if (grp.length < 6) continue;
+      // A truncated group resource can claim more members than it carries.
+      const count = Math.min(grp.readUInt16LE(4), Math.max(0, (grp.length - 6) / 14 | 0));
       const members = [];
       for (let i = 0; i < count; i++) {
         const e = 6 + i * 14;

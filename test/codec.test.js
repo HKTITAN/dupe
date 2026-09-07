@@ -130,3 +130,116 @@ test('ICO and ICNS refuse impossible directories rather than trusting them', () 
   empty.write('ic08', 16, 'latin1'); empty.writeUInt32BE(0, 20);
   assert.equal(largestFromIcns(empty), null);
 });
+
+// ---- Windows icon resources. decodeDib runs on every RT_ICON of whatever
+// executable dupe is pointed at, which is the ordinary `dupe add <app.exe>`
+// and `dupe list` path, so these are reached by adding a downloaded app.
+
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { decodeDib } from '../src/image/ico.js';
+import { readPeIcons, largestIconFromExe } from '../src/image/pe-icon.js';
+
+/** A BITMAPINFOHEADER that says whatever we want, and no pixels at all. */
+function dib({ width, height, bits = 32, headerSize = 40, compression = 0 }) {
+  const b = Buffer.alloc(40);
+  b.writeUInt32LE(headerSize, 0);
+  b.writeInt32LE(width, 4);
+  b.writeInt32LE(height * 2, 8); // biHeight covers XOR and AND together
+  b.writeUInt16LE(1, 12);
+  b.writeUInt16LE(bits, 14);
+  b.writeUInt32LE(compression, 16);
+  return b;
+}
+
+test('a DIB header claiming a huge icon is refused, not allocated', () => {
+  // 20000 x 20000 x 4 is 1.6GB, and the old decoder returned it as a
+  // picture of nothing, from a 40-byte input.
+  assert.throws(() => decodeDib(dib({ width: 20000, height: 20000 })), /at most 1024 a side/);
+  assert.throws(() => decodeDib(dib({ width: -16384, height: 32 })), /at most 1024 a side/);
+  assert.throws(() => decodeDib(dib({ width: 32, height: 0 })), /at most 1024 a side/);
+  // A real size, but the file carries none of the pixels it promises.
+  assert.throws(() => decodeDib(dib({ width: 32, height: 32 })), /truncated/);
+  // Depths the format does not define used to reach a null palette.
+  assert.throws(() => decodeDib(dib({ width: 32, height: 32, bits: 16 })), /colour depth 16/);
+  assert.throws(() => decodeDib(Buffer.alloc(8)), /truncated/);
+});
+
+/**
+ * The smallest PE32 that gets as far as the resource walk, with a resource
+ * directory that points at itself. Three levels is all a real tree has;
+ * this one is a loop, and the descent used to follow it forever —
+ * synchronously, so `dupe ui` stopped answering entirely.
+ */
+function loopingExe(file, { rawSize = 0x200 } = {}) {
+  const buf = Buffer.alloc(0x400);
+  buf.write('MZ', 0, 'latin1');
+  buf.writeUInt32LE(0x80, 0x3c);
+  buf.write('PE  ', 0x80, 'latin1');
+  const coff = 0x84;
+  buf.writeUInt16LE(1, coff + 2);      // one section
+  buf.writeUInt16LE(224, coff + 16);   // optional header size
+  const opt = coff + 20;
+  buf.writeUInt16LE(0x10b, opt);       // PE32
+  buf.writeUInt32LE(0x1000, opt + 96 + 16); // resource directory RVA
+  const sec = opt + 224;
+  buf.write('.rsrc', sec, 'latin1');
+  buf.writeUInt32LE(0x200, sec + 8);   // virtual size
+  buf.writeUInt32LE(0x1000, sec + 12); // virtual address
+  buf.writeUInt32LE(rawSize, sec + 16);
+  buf.writeUInt32LE(0x200, sec + 20);  // raw pointer
+
+  const r = 0x200; // the resource section starts here in the file
+  // Root: one RT_ICON and one RT_GROUP_ICON, both pointing at 0x40.
+  buf.writeUInt16LE(2, r + 14);
+  buf.writeUInt32LE(3, r + 16); buf.writeUInt32LE((0x80000000 | 0x40) >>> 0, r + 20);
+  buf.writeUInt32LE(14, r + 24); buf.writeUInt32LE((0x80000000 | 0x40) >>> 0, r + 28);
+  // The directory at 0x40 contains one entry pointing back at 0x40.
+  buf.writeUInt16LE(1, r + 0x40 + 14);
+  buf.writeUInt32LE(1, r + 0x40 + 16);
+  buf.writeUInt32LE((0x80000000 | 0x40) >>> 0, r + 0x40 + 20);
+  fs.writeFileSync(file, buf);
+  return file;
+}
+
+test('a resource directory that points at itself terminates', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dupe-pe-'));
+  try {
+    const exe = loopingExe(path.join(dir, 'loop.exe'));
+    // The whole point is that this returns at all. It used to spin forever,
+    // synchronously, so even a watchdog timer in the same process never ran.
+    const started = Date.now();
+    assert.deepEqual(readPeIcons(exe), []);
+    assert.ok(Date.now() - started < 2000, 'and returns promptly');
+    assert.throws(() => largestIconFromExe(exe), /no decodable icon|has no icon/i);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a section header claiming gigabytes reads only what the file holds', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dupe-pe-'));
+  try {
+    // SizeOfRawData of 2GB in a 1KB file. Buffer.alloc zero-fills, so this
+    // was 2GB genuinely committed before anything was parsed.
+    const exe = loopingExe(path.join(dir, 'huge.exe'), { rawSize: 0x7fffffff });
+    const before = process.memoryUsage().rss;
+    assert.deepEqual(readPeIcons(exe), []);
+    const grew = (process.memoryUsage().rss - before) / 1048576;
+    assert.ok(grew < 256, `read stays small (grew ${Math.round(grew)}MB)`);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a file that is not a PE at all says so', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dupe-pe-'));
+  try {
+    const notExe = path.join(dir, 'nope.exe');
+    fs.writeFileSync(notExe, 'this is not an executable');
+    assert.throws(() => readPeIcons(notExe), /Not a PE/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
