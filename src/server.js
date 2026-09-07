@@ -263,7 +263,9 @@ function serveStatic(req, res, url) {
   let rel = decodeURIComponent(url.pathname);
   if (rel === '/') rel = '/index.html';
   const type = TYPES[path.extname(rel).toLowerCase()] || 'application/octet-stream';
-  const isPage = rel === '/index.html';
+  // Any page this server serves gets the token: the artwork pages post
+  // their rendered PNG back through the same gate.
+  const isPage = rel.endsWith('.html');
   const file = path.normalize(path.join(DOCS, rel));
   if (file.startsWith(DOCS) && fs.existsSync(file) && !fs.statSync(file).isDirectory()) {
     res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'no-store' });
