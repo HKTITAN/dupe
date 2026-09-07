@@ -9,7 +9,7 @@
 </style>
 <style>
   html, body { margin: 0; background: #f7f7f7; font-family: Nunito, "Segoe UI", system-ui, sans-serif; }
-  canvas { display: block; margin: 24px auto; width: 1200px; height: 1500px; box-shadow: 0 2px 14px rgba(0,0,0,.12); background: #fff; }
+  canvas { display: block; margin: 24px auto; width: 1200px; height: 1535px; box-shadow: 0 2px 14px rgba(0,0,0,.12); background: #fff; }
   #bar { position: fixed; left: 16px; top: 16px; display: flex; gap: 8px; font: 700 14px Nunito, sans-serif; }
   button { font: inherit; padding: 6px 12px; border-radius: 8px; border: 2px solid #e5e5e5; background: #fff; cursor: pointer; }
 </style>
@@ -20,22 +20,22 @@
   <button id="download" type="button">Download</button>
   <span id="msg"></span>
 </div>
-<canvas id="c" width="2400" height="3000"></canvas>
+<canvas id="c" width="2400" height="3070"></canvas>
 <script>
 /* The command cheatsheet in README.md, drawn with the canvas API at 2x.
    Same approach as banner.html: no foreignObject, because Chrome taints a
    canvas drawn from one and then refuses toBlob(). Rendering here rather
    than committing a hand-made image keeps the picture and the CLI in one
    place — when a command changes, this changes with it. */
-const W = 1200, H = 1500;
+const W = 1200, H = 1535;
 const INK = '#3c3c3c', MUTED = '#6f6f6f', FAINT = '#afafaf', LINE = '#e5e5e5', BLUE = '#1b91e3', WASH = '#f7f7f7';
 const MONO = 'ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace';
 
 const COMMANDS = [
   ['list', '', 'list', 'Apps found on this machine, and the profiles built so far'],
-  ['status', '[app] [profile]', 'status', 'Whether each profile is level with the app it copies'],
+  ['status', '[app] [profile]', 'status', 'Is each profile level? Name one to see what it isolates'],
   ['install', '<app>', 'install', 'Install the stock app itself — winget, Homebrew or Flathub'],
-  ['add', '<app> <profile>', 'add', 'Build a profile: its own login, data, icon and dock entry'],
+  ['add', '<app> [profile]', 'add', 'Build a profile: its own login, data, icon and dock entry'],
   ['remove', '<app> <profile>', 'remove', 'Remove the launcher. Its data stays unless you add --purge'],
   ['update', '[app] [profile]', 'update', 'Rebuild the profiles that are behind'],
   ['autoupdate', '[on|off]', 'clock', 'Do that in the background. Bare: show the schedule'],
@@ -49,11 +49,12 @@ const COMMANDS = [
 ];
 
 const EXAMPLES = [
-  ['dupe add claude work', 'Claude Work: its own login, its own data, a blue icon'],
+  ['dupe add claude', 'Claude Work: its own login, its own data, a blue icon'],
   ['dupe add claude client-a --color green', 'A second one beside it, green, entirely separate'],
   ['dupe add chatgpt personal --label "GPT Home"', 'Name it whatever you want to see in the dock'],
-  ['dupe add slack work --install', 'Install Slack first if it isn’t here, then profile it'],
+  ['dupe add clickup work', 'Any Electron app dupe found here, by name — see dupe list'],
   ['dupe autoupdate on --every 2h', 'Check for stock app updates twice as often'],
+  ['dupe add slack work --install', 'Install Slack first if it isn’t here, then profile it'],
   ['dupe icon Claude.exe work.ico --color purple', 'Recolour an icon on its own, for a phone or a Shortcut'],
 ];
 

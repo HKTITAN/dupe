@@ -62,6 +62,11 @@ Either way there are no runtime dependencies: the image work (PNG, ICO, ICNS, PE
 
 ## Use
 
+[![Every dupe command on one page](docs/cheatsheet.png)](docs/cheatsheet.png)
+
+<details>
+<summary>The same as text</summary>
+
 ```
 dupe list                      Apps found on this machine and profiles built so far
 dupe status                    Whether each profile is level with the app it copies
@@ -80,7 +85,7 @@ dupe log                       What the background updater has done lately
 dupe uninstall                 Remove every profile and everything dupe has written
 ```
 
-Every command on one page: [the cheatsheet](docs/cheatsheet.png).
+</details>
 
 `<app>` is a preset id, the name of any Electron app on your machine, or a path (`/Applications/Foo.app`, `C:\…\Foo.exe`, `foo.desktop`, `Foo.AppImage`).
 
