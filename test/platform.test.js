@@ -98,3 +98,41 @@ test('a preset is trusted, an unknown binary is not', async () => {
   const nothing = customApp(path.join(os.tmpdir(), 'definitely-not-here-' + process.pid));
   assert.equal(core.isolation(nothing, be).confident, false);
 });
+
+// The Linux Exec line, which is pure string work and so runs anywhere.
+const { splitExec, joinExec } = await import('../src/platform/linux.js');
+const rebuild = (exec) => joinExec(splitExec(exec), ['--user-data-dir=/d', '--class=X']);
+
+test('a field code keeps its meaning and its place', () => {
+  // Files and URLs reach an app through the field code. dupe used to delete
+  // whatever was there and append %U, whatever the app had asked for.
+  assert.equal(
+    rebuild('/usr/bin/google-chrome-stable %U'),
+    '/usr/bin/google-chrome-stable --user-data-dir=/d --class=X %U',
+  );
+  assert.equal(
+    rebuild('/usr/bin/foo %f'),
+    '/usr/bin/foo --user-data-dir=/d --class=X %f',
+  );
+  // An entry that takes no files should not be given a field code it never had.
+  assert.equal(rebuild('/opt/thing/thing'), '/opt/thing/thing --user-data-dir=/d --class=X');
+});
+
+test("Flatpak's file-forwarding markers survive, with the code still inside them", () => {
+  // Verbatim from VS Code's Flathub export, and dupe ships that preset. The
+  // old code left `@@ @@` empty and put %U after the close, which hands a
+  // sandboxed app a host path it has no permission to open.
+  assert.equal(
+    rebuild('/usr/bin/flatpak run --branch=stable --command=code --file-forwarding com.visualstudio.code @@ %F @@'),
+    '/usr/bin/flatpak run --branch=stable --command=code --file-forwarding com.visualstudio.code --user-data-dir=/d --class=X @@ %F @@',
+  );
+  assert.equal(
+    rebuild('/usr/bin/flatpak run com.slack.Slack @@u %U @@'),
+    '/usr/bin/flatpak run com.slack.Slack --user-data-dir=/d --class=X @@u %U @@',
+  );
+  // The markers are recognised, not just copied.
+  const parts = splitExec('/usr/bin/flatpak run x.y.Z @@u %U @@');
+  assert.equal(parts.markers, '@@u');
+  assert.equal(parts.field, '%U');
+  assert.equal(parts.base, '/usr/bin/flatpak run x.y.Z');
+});

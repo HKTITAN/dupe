@@ -81,6 +81,11 @@ export function flatpakId(exec) {
 // for just those two, into a directory of ours, rather than unpacking a
 // whole application to read two files.
 function fromAppImage(file) {
+  // An AppImage that is not executable fails silently in spawnSync, and the
+  // user then gets "couldn't find an icon", which is not the problem.
+  try { fs.accessSync(file, fs.constants.X_OK); } catch {
+    throw new Error(`${path.basename(file)} isn't executable — run: chmod +x ${file}`);
+  }
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dupe-appimage-'));
   const run = (pattern) => spawnSync(file, ['--appimage-extract', pattern], { cwd: dir, stdio: 'ignore', timeout: 30_000 });
   try {
@@ -103,15 +108,20 @@ function fromAppImage(file) {
   }
 }
 
-export function locate(app) {
+export function locate(app, { shallow = false } = {}) {
   if (app.custom) {
     const p = path.resolve(app.source);
     if (!fs.existsSync(p)) return null;
     if (p.endsWith('.desktop')) {
       const d = parseDesktop(p);
-      return { desktop: p, entry: d, exec: d.Exec, icon: d.Icon, flatpak: flatpakId(d.Exec) };
+      return { desktop: p, entry: d, exec: d.Exec, icon: d.Icon, iconFile: iconPath(d.Icon), flatpak: flatpakId(d.Exec) };
     }
-    if (/\.appimage$/i.test(p)) return fromAppImage(p);
+    // Unpacking an AppImage means executing it, three times, into a fresh
+    // temp directory. stamp() only wants the file's size and mtime, and it
+    // is called for every `dupe status`, every `dupe update`, and up to
+    // sixteen more times inside settle() — which left a directory in /tmp
+    // and ran the binary fifty times for one scheduled check.
+    if (/\.appimage$/i.test(p)) return shallow ? { exec: quote(p), icon: null } : fromAppImage(p);
     return { exec: quote(p), icon: null };
   }
   const l = app.linux || {};
@@ -120,15 +130,30 @@ export function locate(app) {
       const file = path.join(dir, `${id}.desktop`);
       if (fs.existsSync(file)) {
         const d = parseDesktop(file);
-        return { desktop: file, entry: d, exec: d.Exec, icon: d.Icon, flatpak: flatpakId(d.Exec) || (/flatpak run/.test(d.Exec || '') ? l.flatpak : null) };
+        return {
+          desktop: file, entry: d, exec: d.Exec, icon: d.Icon, iconFile: iconPath(d.Icon),
+          flatpak: flatpakId(d.Exec) || (/flatpak run/.test(d.Exec || '') ? l.flatpak : null),
+        };
       }
     }
   }
   for (const bin of l.bins || []) {
     const p = which(bin);
-    if (p) return { exec: quote(p), icon: (l.desktop || [])[0] || null };
+    if (p) {
+      const name = (l.desktop || [])[0] || null;
+      return { exec: quote(p), icon: name, iconFile: iconPath(name) };
+    }
   }
   return null;
+}
+
+/** An icon the interface can actually load. `Icon=` in a .desktop is a
+ *  theme NAME, not a path, and the server only knows how to read files —
+ *  so on Linux every app tile and every colour swatch came out blank. SVG
+ *  is left out because the icon reader cannot decode one. */
+function iconPath(name) {
+  const found = findIconFile(name);
+  return found && !found.endsWith('.svg') ? found : null;
 }
 
 // Finding an icon by name means walking every installed theme, which is
@@ -180,6 +205,44 @@ function rasterizeSvg(svg, outPng) {
   throw new Error(`Icon ${svg} is SVG and no rasteriser (rsvg-convert, inkscape, convert) is installed. Pass --icon <png> instead.`);
 }
 
+/**
+ * Take an Exec line apart: the command, the field code, and Flatpak's
+ * file-forwarding markers if it has them.
+ *
+ * A .desktop Exec ends in a field code — %u %U %f %F — that says how files
+ * and URLs are handed to the app. A Flatpak entry for an app declaring
+ * --file-forwarding wraps that code in `@@ ... @@`, which tells flatpak
+ * which arguments are paths it must bind into the sandbox. VS Code's own
+ * Flathub export is `... --file-forwarding com.visualstudio.code @@ %F @@`,
+ * and dupe ships that preset.
+ *
+ * Deleting the code and appending %U at the end broke both halves: the
+ * forwarding block was left empty so nothing was forwarded, and the %U
+ * outside it handed a sandboxed app a host path it has no permission to
+ * read. So the code is preserved, in the place it was.
+ */
+export function splitExec(exec) {
+  const line = String(exec || '').trim();
+  const forwarded = /\s(@@u?)\s*(%[fFuU])?\s*@@/.exec(line);
+  if (forwarded) {
+    return { base: line.slice(0, forwarded.index).trim(), markers: forwarded[1], field: forwarded[2] || null };
+  }
+  const bare = /\s(%[fFuU])(?=\s|$)/.exec(line);
+  if (bare) {
+    return { base: (line.slice(0, bare.index) + line.slice(bare.index + bare[0].length)).trim(), markers: null, field: bare[1] };
+  }
+  return { base: line, markers: null, field: null };
+}
+
+/** Put it back together with dupe's own flags in the middle, where they are
+ *  flags rather than files. */
+export function joinExec({ base, markers, field }, extra) {
+  let line = [base, ...extra].filter(Boolean).join(' ');
+  if (markers) line += ` ${[markers, field, '@@'].filter(Boolean).join(' ')}`;
+  else if (field) line += ` ${field}`;
+  return line;
+}
+
 export function build(app, opts, log = () => {}) {
   const found = locate(app);
   if (!found) throw new Error(`${app.name} isn't installed here (no .desktop entry or binary found for the ${app.id} preset).`);
@@ -210,17 +273,18 @@ export function build(app, opts, log = () => {}) {
   fs.mkdirSync(opts.dataDir, { recursive: true });
   for (const v of Object.values(env)) if (v.startsWith(opts.dataDir)) fs.mkdirSync(v, { recursive: true });
 
-  // Strip field codes from the stock Exec and append ours; Flatpak takes env
-  // via --env, and needs the profile directory bound into its sandbox or the
-  // app cannot write the one thing that makes it a separate profile.
-  let exec = String(found.exec || '').replace(/\s%[a-zA-Z]/g, '').trim();
+  // Flatpak takes environment via --env and needs the profile directory bound
+  // into its sandbox, or the app cannot write the one thing that makes it a
+  // separate profile. The whole flag is quoted, not just the value: the
+  // desktop spec quotes arguments, not fragments of them.
+  const parts = splitExec(found.exec);
   if (found.flatpak) {
-    const flags = [`--filesystem=${quote(opts.dataDir)}`, ...Object.entries(env).map(([k, v]) => `--env=${k}=${quote(v)}`)];
-    exec = exec.replace(/flatpak run/, `flatpak run ${flags.join(' ')}`).trim();
+    const flags = [quote(`--filesystem=${opts.dataDir}`), ...Object.entries(env).map(([k, v]) => quote(`--env=${k}=${v}`))];
+    parts.base = parts.base.replace(/flatpak run/, `flatpak run ${flags.join(' ')}`).trim();
   } else if (Object.keys(env).length) {
-    exec = `env ${Object.entries(env).map(([k, v]) => `${k}=${quote(v)}`).join(' ')} ${exec}`;
+    parts.base = `env ${Object.entries(env).map(([k, v]) => quote(`${k}=${v}`)).join(' ')} ${parts.base}`;
   }
-  exec = `${exec} ${args.map(quote).join(' ')} %U`;
+  const exec = joinExec(parts, args.map(quote));
 
   const base = found.entry || {};
   const desktop = [
@@ -300,7 +364,7 @@ export function launch(record) {
  *  A Linux profile runs the stock binary in place, so what a change means
  *  here is that the icon and the Exec line are worth refreshing. */
 export function stamp(app) {
-  const found = locate(app);
+  const found = locate(app, { shallow: true });
   if (!found) return null;
   const exec = String(found.exec || '').trim();
   const first = exec.startsWith('"') ? exec.slice(1, exec.indexOf('"', 1)) : exec.split(/\s+/)[0];
