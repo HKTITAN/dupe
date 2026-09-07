@@ -9,7 +9,7 @@
 </style>
 <style>
   html, body { margin: 0; background: #f7f7f7; font-family: Nunito, "Segoe UI", system-ui, sans-serif; }
-  canvas { display: block; margin: 24px auto; width: 1200px; height: 1460px; box-shadow: 0 2px 14px rgba(0,0,0,.12); background: #fff; }
+  canvas { display: block; margin: 24px auto; width: 1200px; height: 1500px; box-shadow: 0 2px 14px rgba(0,0,0,.12); background: #fff; }
   #bar { position: fixed; left: 16px; top: 16px; display: flex; gap: 8px; font: 700 14px Nunito, sans-serif; }
   button { font: inherit; padding: 6px 12px; border-radius: 8px; border: 2px solid #e5e5e5; background: #fff; cursor: pointer; }
 </style>
@@ -20,14 +20,14 @@
   <button id="download" type="button">Download</button>
   <span id="msg"></span>
 </div>
-<canvas id="c" width="2400" height="2920"></canvas>
+<canvas id="c" width="2400" height="3000"></canvas>
 <script>
 /* The command cheatsheet in README.md, drawn with the canvas API at 2x.
    Same approach as banner.html: no foreignObject, because Chrome taints a
    canvas drawn from one and then refuses toBlob(). Rendering here rather
    than committing a hand-made image keeps the picture and the CLI in one
    place — when a command changes, this changes with it. */
-const W = 1200, H = 1460;
+const W = 1200, H = 1500;
 const INK = '#3c3c3c', MUTED = '#6f6f6f', FAINT = '#afafaf', LINE = '#e5e5e5', BLUE = '#1b91e3', WASH = '#f7f7f7';
 const MONO = 'ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace';
 
@@ -44,6 +44,7 @@ const COMMANDS = [
   ['ui', '', 'ui', 'The interface in your browser, connected to this computer'],
   ['icon', '<in> <out>', 'icon', 'Recolour any icon file on its own: .exe .ico .icns .png'],
   ['colors', '', 'colors', 'The eight palette colours'],
+  ['log', '', 'log', 'What the background updater has done lately'],
   ['uninstall', '', 'uninstall', 'Remove every profile and everything dupe has written'],
 ];
 
@@ -144,6 +145,9 @@ function glyph(g, name, x, y, s = 20, color = BLUE) {
       break;
     case 'colors':
       for (const [cx, cy] of [[9.5, 9.5], [14.5, 9.5], [12, 14.5]]) { g.beginPath(); g.arc(cx, cy, 4.6, 0, 7); g.stroke(); }
+      break;
+    case 'log':
+      for (const [yy, x2] of [[6, 20], [12, 16], [18, 21]]) P(() => { g.moveTo(4, yy); g.lineTo(x2, yy); });
       break;
     case 'status':
       P(() => { g.arc(12, 12, 8.5, 0, 7); });

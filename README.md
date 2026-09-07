@@ -88,9 +88,10 @@ Every command on one page: [the cheatsheet](docs/cheatsheet.png).
 | `claude` | – | macOS, Windows (Store package) |
 | `chatgpt` | `CODEX_HOME` for the Codex agent | macOS, Windows (Store package) |
 | `grok-bot` | `SAND_DATA_ROOT` for the local-exec daemon | macOS, Windows |
+| `chrome` | – | macOS and Linux, built and torn down in CI on every push |
 | `slack` `discord` `notion` `obsidian` | – | Electron flag, not individually tested |
 | `vscode` `cursor` | `--extensions-dir` | Electron flag, not individually tested |
-| `chrome` `edge` `brave` | – | Chromium flag |
+| `edge` `brave` | – | Chromium flag, same shape as `chrome` |
 
 Profiles are independent of each other and of the stock app. The first profile of an app is blue; each further one takes the next palette colour (green, purple, amber, red, teal, pink, gray) unless you pass `--color`, which also accepts any `#rrggbb`. All eight palette colours sit at the same OKLCH lightness and chroma, so a Dock full of dupes reads as one family that differs only by hue.
 
@@ -111,7 +112,9 @@ The app's own icon is pulled from the binary (`.icns`, PE resources, `.ico` or t
 
 A port of the original script. The stock bundle is APFS-cloned (copy-on-write, so it's nearly free) to `/Applications/<Label>.app`; the real binary is renamed and replaced by a launcher that `exec`s it with `--user-data-dir` and the preset's environment; the `.icns` is replaced; `Info.plist` gets the new display name and a `.<profile>` suffix on the bundle id so macOS treats it as a distinct app; Sparkle/electron-updater are disabled; the bundle is ad-hoc re-signed and its quarantine flag dropped.
 
-Clones are frozen snapshots. After the stock app updates itself, run `dupe rebuild`. Profile data lives in `~/Library/Application Support/dupe/<app>/<profile>`, so rebuilding never touches logins.
+A clone is a copy, so it doesn't inherit the app's own updater — that is switched off deliberately, or two copies would fight over one install. Instead the launcher compares the stock bundle against the fingerprint it was cloned from at every launch, and re-clones first if they differ; see [Staying level with the app](#staying-level-with-the-app). Profile data lives in `~/Library/Application Support/dupe/<app>/<profile>`, so none of that touches a login.
+
+Every push builds a real profile of Chrome on a macOS runner and takes it apart again: the clone, the renamed binary, the generated launcher parsed as bash, the plist edits, and a signature that verifies. It also checks that the fingerprint the launcher computes in shell is character-for-character the one dupe recorded in JavaScript — if those ever disagreed, a clone would rebuild itself on every launch.
 
 ### Windows
 
