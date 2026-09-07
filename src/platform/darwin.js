@@ -49,6 +49,15 @@ export function isElectron(bundle) {
     fs.existsSync(path.join(bundle, 'Contents', 'Resources', 'app.asar'));
 }
 
+/** Chromium underneath, by either route: an Electron app, or a browser that
+ *  ships its own Chromium framework (Chrome, Edge, Brave, Vivaldi, Arc). */
+export function usesChromium(bundle) {
+  if (isElectron(bundle)) return true;
+  let frameworks = [];
+  try { frameworks = fs.readdirSync(path.join(bundle, 'Contents', 'Frameworks')); } catch { return false; }
+  return frameworks.some((f) => /(Chromium|Chrome|Electron|CEF)\b.*\.framework$/i.test(f));
+}
+
 // Render the icon macOS actually shows (Assets.car or icns) to a 1024px PNG,
 // the way the original script did, for bundles whose .icns has no PNG sizes.
 function renderIconViaAppKit(bundle, outPng) {

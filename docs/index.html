@@ -188,6 +188,7 @@
   .autoup .grow { flex: 1 1 auto; }
 
   .notice { padding: 12px 14px; border-radius: var(--radius-tile); background: var(--polar); font-size: 15px; }
+  .notice.warn { border-color: var(--amber, #b77b00); color: var(--ink); background: color-mix(in srgb, #b77b00 8%, transparent); }
   .notice.ok { background: #e6f6da; color: #2a5a00; }
   .notice.err { background: #ffe8e8; color: #8a1616; }
   @media (prefers-color-scheme: dark) {
@@ -584,7 +585,17 @@ $('#build').addEventListener('click', async () => {
     if (customIcon) body.iconData = b64(customIcon.png);
     const r = await api('/api/add', body);
     live.profiles = live.profiles.filter((p) => !(p.app === r.record.app && p.profile === r.record.profile)).concat([r.record]);
-    out.className = 'notice ok'; out.textContent = `Built ${r.record.label}! ${r.hint}`; out.hidden = false;
+    // A profile that looks separate and isn't is the one failure worth
+    // interrupting for, so say it here rather than only in the terminal.
+    if (r.record.isolationChecked === false) {
+      out.className = 'notice warn';
+      out.innerHTML = `<b>Built ${r.record.label}, but dupe can't confirm ${r.record.appName} keeps profiles apart.</b>` +
+        ` It only isolates apps built on Chromium, and this one shows no sign of being one.` +
+        ` Open both copies and check they're signed in to different accounts before you rely on it.`;
+    } else {
+      out.className = 'notice ok'; out.textContent = `Built ${r.record.label}! ${r.hint}`;
+    }
+    out.hidden = false;
     renderApps(); renderProfiles(r.record);
     if (pickedApp !== '__custom') { $('#pname').value = ''; $('#pname').placeholder = profilesOf(pickedApp).some((p) => p.profile === 'work') ? 'client-a' : 'work'; pcolor = nextColor(pickedApp); $('#phex').value = ''; clearCustomIcon(); $('#pstrip').dataset.key = ''; refreshBuilder(); }
   } catch (e) {

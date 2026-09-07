@@ -25,6 +25,28 @@ const ICON_DIRS = [
   '/usr/share/pixmaps',
 ];
 
+function binaryDir(exec) {
+  const first = String(exec || '').trim().replace(/^"(.*)"$/, '$1').split(/\s+/)[0];
+  if (!first || !path.isAbsolute(first)) return null;
+  try { return path.dirname(fs.realpathSync(first)); } catch { return null; }
+}
+
+/** Whether a binary is an Electron app: the asar archive sits beside it. */
+export function isElectron(exec) {
+  const dir = binaryDir(exec);
+  return !!dir && (fs.existsSync(path.join(dir, 'resources', 'app.asar')) || fs.existsSync(path.join(dir, 'resources', 'app')));
+}
+
+/** Chromium underneath, by either route — an Electron app, or a browser
+ *  shipping its own Chromium. Either way --user-data-dir is understood. */
+export function usesChromium(exec) {
+  if (isElectron(exec)) return true;
+  const dir = binaryDir(exec);
+  if (!dir) return false;
+  return ['icudtl.dat', 'resources.pak', 'chrome-sandbox', 'chrome_100_percent.pak']
+    .some((m) => fs.existsSync(path.join(dir, m)));
+}
+
 export function parseDesktop(file) {
   const out = {};
   let inEntry = false;

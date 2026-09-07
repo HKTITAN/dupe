@@ -107,6 +107,34 @@ export function locate(app) {
   return null;
 }
 
+/**
+ * Whether an executable is Chromium underneath, which is what decides
+ * whether --user-data-dir means anything to it.
+ *
+ * Two layouts, because two families: an Electron app keeps its code in
+ * resources/app.asar beside the binary, while Chrome and Edge keep theirs in
+ * a version-numbered folder next to chrome.exe. The Chromium data files —
+ * icudtl.dat, the .pak resources — are common to both and are the signal
+ * that survives either layout.
+ */
+export function usesChromium(exe) {
+  const dir = path.dirname(exe);
+  const marks = ['resources\\app.asar', 'resources\\app', 'icudtl.dat', 'resources.pak', 'chrome.dll'];
+  for (const m of marks) if (fs.existsSync(path.join(dir, m))) return true;
+  // Chrome's Application\<version>\ layout, and Squirrel's app-<version>\.
+  let subdirs = [];
+  try { subdirs = fs.readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory()).slice(0, 40); } catch { return false; }
+  for (const d of subdirs) {
+    if (!/^(\d|app-\d)/.test(d.name)) continue;
+    for (const m of ['icudtl.dat', 'chrome.dll', 'resources.pak']) {
+      if (fs.existsSync(path.join(dir, d.name, m))) return true;
+    }
+  }
+  return false;
+}
+
+/** Electron specifically: what discovery looks for, since an asar is the
+ *  sign of an app rather than of a browser that ships its own installer. */
 export function isElectron(exe) {
   return fs.existsSync(path.join(path.dirname(exe), 'resources', 'app.asar')) ||
     fs.existsSync(path.join(path.dirname(exe), 'resources', 'app'));

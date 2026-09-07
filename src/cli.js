@@ -106,6 +106,16 @@ export async function main(argv) {
         throw advice ? new Error(`${e.message}\n\n${advice}`) : e;
       }
       console.log(`\n${swatch(record.color)} ${existed ? 'Updated' : 'Built'} ${bold(`"${record.label}"`)}. ${core.hint(record)}`);
+      // The one failure worth interrupting for: a profile that looks separate
+      // and isn't. dupe cannot prove an arbitrary app reads --user-data-dir,
+      // so where it cannot, it says so rather than implying isolation.
+      if (record.isolationChecked === false) {
+        console.log(`\n${ink(record.color, '!')} ${bold(`dupe can't confirm ${record.appName} keeps profiles apart.`)}`);
+        console.log(dim('  It only isolates apps that read --user-data-dir. Presets are checked; this one'));
+        console.log(dim('  is not a preset, and has no Electron layout on disk to go by.'));
+        console.log(dim(`  Open both copies and check they are signed in to different accounts before`));
+        console.log(dim('  you rely on it. If they share a login, this app needs a different approach.'));
+      }
       // Said once, when the first profile appears and nothing is keeping it
       // level yet. After that you know, and it stays quiet.
       const built = (await import('./store.js')).loadStore().profiles.length;
@@ -372,6 +382,9 @@ async function detail(summary) {
   if ((rec.extraArgs || []).length) line('extra flags', rec.extraArgs.join(' '));
   console.log('');
   line('copy of', `${summary.source || rec.source}${summary.version ? dim(`   ${summary.version}`) : ''}`);
+  if (rec.isolationChecked === false) {
+    line('isolation', `${ink(rec.color, 'unconfirmed')} ${dim("— dupe couldn't tell whether this app reads --user-data-dir")}`);
+  }
   line('icon', `${ink(rec.color, rec.color)} ${dim(`${colorNameOf(rec.color)} · ${rec.treatment}${rec.iconFile ? ' · your own icon' : ''}`)}`);
   line('built', `${ago(rec.builtAt)}${rec.builtBy ? dim(`   by dupe ${rec.builtBy}`) : ''}`);
   console.log('');

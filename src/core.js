@@ -102,6 +102,30 @@ export function stampId(be, app) {
   }
 }
 
+/**
+ * How confident dupe is that this app will actually honour the flag that
+ * makes a profile a profile.
+ *
+ * The presets are curated: someone checked. Anything else is read off the
+ * disk — is there Chromium under this, by either route, an Electron app's
+ * asar or a browser's own Chromium framework and data files. If there is,
+ * --user-data-dir is understood and the profile is real.
+ *
+ * Absence of that sign is not proof the app ignores the flag, so this warns
+ * and never refuses. Getting it wrong the other way is what matters: a user
+ * who believes two copies are separate when they share one login is worse
+ * off than one who was told the tool could not tell.
+ */
+export function isolation(app, be) {
+  if (!app.custom) return { confident: true, why: 'a preset dupe has checked' };
+  try {
+    const where = be.locate(app);
+    const target = where && (where.bundle || where.exe || where.exec);
+    if (target && be.usesChromium && be.usesChromium(target)) return { confident: true, why: 'Chromium underneath, so the flag is understood' };
+  } catch { /* fall through to the honest answer */ }
+  return { confident: false, why: "dupe can't tell whether this app reads --user-data-dir" };
+}
+
 export function hint(record) {
   switch (record.platform) {
     case 'win32': return "It's in the Start Menu; pin it to the taskbar from there.";
@@ -146,9 +170,11 @@ export async function add(appSpec, profileName, values = {}, log = () => {}) {
   const existing = store.profiles.find((p) => p.app === app.id && p.profile === slug(profileName));
   const opts = prepare(app, profileName, values, store, existing);
   log(`${app.name} · ${opts.profile}  "${opts.label}"  ${opts.color}`);
+  const sure = isolation(app, be);
   const record = be.build(app, opts, log);
   if (!record.sourceStamp) record.sourceStamp = stampId(be, app);
   record.builtBy = VERSION;
+  record.isolationChecked = sure.confident;
   commitProfile(record);
   schedule.refresh(); // macOS watches the bundles it was built from
   return record;
