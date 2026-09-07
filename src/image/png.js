@@ -22,6 +22,34 @@ export function isPng(buf) {
 }
 
 const CHANNELS = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 };
+// Bit depths the spec allows for each colour type. Anything else is a
+// malformed file, and reading it produces nonsense rather than an error.
+const DEPTHS = { 0: [1, 2, 4, 8, 16], 2: [8, 16], 3: [1, 2, 4, 8], 4: [8, 16], 6: [8, 16] };
+
+// Every number below comes out of the file being read, and this decoder is
+// pointed at whatever an app's resource section, an .icns, or a user's
+// --icon happens to contain. A header claiming 65535x65535 asks for 17GB
+// before a single pixel has been read, and a few hundred kilobytes of IDAT
+// can inflate to gigabytes, so both are bounded here rather than trusted.
+// The limits are far above any icon: 8192 a side is 32x the largest .icns.
+const MAX_SIDE = 8192;
+const MAX_PIXELS = 16 * 1024 * 1024;
+
+// How many bytes a valid IDAT stream must inflate to for this geometry: one
+// filter byte plus the packed scanline, per row, over one pass or Adam7's
+// seven. Anything more is a lie, and inflateSync is told to stop there.
+const ADAM7_X0 = [0, 4, 0, 2, 0, 1, 0], ADAM7_Y0 = [0, 0, 4, 0, 2, 0, 1];
+const ADAM7_DX = [8, 8, 4, 4, 2, 2, 1], ADAM7_DY = [8, 8, 8, 4, 4, 2, 2];
+
+function rawBytes(width, height, bitsPerPixel, interlace) {
+  const pass = (w, h) => (w <= 0 || h <= 0 ? 0 : h * (1 + Math.ceil((w * bitsPerPixel) / 8)));
+  if (!interlace) return pass(width, height);
+  let total = 0;
+  for (let p = 0; p < 7; p++) {
+    total += pass(Math.ceil((width - ADAM7_X0[p]) / ADAM7_DX[p]), Math.ceil((height - ADAM7_Y0[p]) / ADAM7_DY[p]));
+  }
+  return total;
+}
 
 export function decodePng(buf) {
   if (!isPng(buf)) throw new Error('Not a PNG');
@@ -35,6 +63,7 @@ export function decodePng(buf) {
     const type = buf.toString('latin1', pos + 4, pos + 8);
     const data = buf.subarray(pos + 8, pos + 8 + len);
     if (type === 'IHDR') {
+      if (data.length < 13) throw new Error('PNG header is truncated');
       ihdr = {
         width: data.readUInt32BE(0),
         height: data.readUInt32BE(4),
@@ -52,9 +81,26 @@ export function decodePng(buf) {
   const { width, height, depth, colorType, interlace } = ihdr;
   const channels = CHANNELS[colorType];
   if (!channels) throw new Error(`Unsupported PNG colour type ${colorType}`);
+  if (!DEPTHS[colorType].includes(depth)) throw new Error(`PNG colour type ${colorType} can't have ${depth}-bit samples`);
+  if (interlace > 1) throw new Error(`Unknown PNG interlace method ${interlace}`);
+  if (colorType === 3 && !plte) throw new Error('PNG is palette-coloured but has no palette');
+  if (width < 1 || height < 1) throw new Error('PNG has no pixels');
+  if (width > MAX_SIDE || height > MAX_SIDE || width * height > MAX_PIXELS) {
+    throw new Error(`PNG claims to be ${width}x${height}; the limit is ${MAX_SIDE} a side and ${MAX_PIXELS / 1024 / 1024}M pixels`);
+  }
   const bitsPerPixel = channels * depth;
   const bpp = Math.max(1, bitsPerPixel >> 3);
-  const raw = zlib.inflateSync(Buffer.concat(idat));
+  const expected = rawBytes(width, height, bitsPerPixel, interlace);
+  let raw;
+  try {
+    raw = zlib.inflateSync(Buffer.concat(idat), { maxOutputLength: expected });
+  } catch (e) {
+    // ERR_BUFFER_TOO_LARGE means the stream carried more than the geometry
+    // in the header could possibly account for.
+    if (e && e.code === 'ERR_BUFFER_TOO_LARGE') throw new Error('PNG image data is larger than its header allows');
+    throw e;
+  }
+  if (raw.length < expected) throw new Error('PNG image data is shorter than its header promises');
   const out = new Uint8Array(width * height * 4);
   const maxv = (1 << depth) - 1;
 
@@ -118,15 +164,13 @@ export function decodePng(buf) {
   if (!interlace) {
     unfilterPass(0, width, height, (line, x, y) => sample(line, x, x, y));
   } else {
-    const XS = [0, 4, 0, 2, 0, 1, 0], YS = [0, 0, 4, 0, 2, 0, 1];
-    const XD = [8, 8, 4, 4, 2, 2, 1], YD = [8, 8, 8, 4, 4, 2, 2];
     let offset = 0;
     for (let p = 0; p < 7; p++) {
-      const pw = Math.ceil((width - XS[p]) / XD[p]);
-      const ph = Math.ceil((height - YS[p]) / YD[p]);
+      const pw = Math.ceil((width - ADAM7_X0[p]) / ADAM7_DX[p]);
+      const ph = Math.ceil((height - ADAM7_Y0[p]) / ADAM7_DY[p]);
       if (pw <= 0 || ph <= 0) continue;
       offset = unfilterPass(offset, pw, ph, (line, x, y) =>
-        sample(line, x, XS[p] + x * XD[p], YS[p] + y * YD[p]));
+        sample(line, x, ADAM7_X0[p] + x * ADAM7_DX[p], ADAM7_Y0[p] + y * ADAM7_DY[p]));
     }
   }
   return { width, height, data: out };
