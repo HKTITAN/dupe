@@ -4,7 +4,7 @@ import path from 'node:path';
 import { APPS, findApp, customApp } from './apps.js';
 import { NAMED, ORDER, resolveColor, nextColor } from './palette.js';
 import * as schedule from './schedule.js';
-import { DUPE_HOME, commitProfile, commitRemoval, loadStore, profileDataDir, slug, titleCase } from './store.js';
+import { DUPE_HOME, commitProfile, commitRemoval, loadStore, profileDataDir, slug, titleCase, withBuildLock } from './store.js';
 import { VERSION } from './embedded.js';
 
 export async function backend() {
@@ -200,7 +200,9 @@ export async function add(appSpec, profileName, values = {}, log = () => {}) {
   const opts = prepare(app, profileName, values, store, existing);
   log(`${app.name} · ${opts.profile}  "${opts.label}"  ${opts.color}`);
   const sure = isolation(app, be);
-  const record = be.build(app, opts, log);
+  const attempt = withBuildLock(app.id, opts.profile, () => be.build(app, opts, log));
+  if (attempt.busy) throw new Error(`Something else is already building "${opts.label}". Wait for it to finish.`);
+  const record = attempt.value;
   if (!record.sourceStamp) record.sourceStamp = stampId(be, app);
   record.builtBy = VERSION;
   record.isolationChecked = sure.confident;
@@ -260,7 +262,13 @@ export async function rebuild(appSpec, values = {}, log = () => {}) {
     const opts = prepare(app, old.profile, values, store, old);
     log(`${app.name} · ${opts.profile}  "${opts.label}"  ${opts.color}`);
     try {
-      const record = be.build(app, opts, log);
+      const attempt = withBuildLock(app.id, opts.profile, () => be.build(app, opts, log));
+      if (attempt.busy) {
+        log('  skipped     something else is already building this one');
+        results.push({ ok: false, app: old.app, profile: old.profile, error: 'a build is already running' });
+        continue;
+      }
+      const record = attempt.value;
       if (!record.sourceStamp) record.sourceStamp = stampId(be, app);
       record.builtBy = VERSION;
       commitProfile(record, { ifPresent: true });

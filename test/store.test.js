@@ -157,4 +157,46 @@ test('a rebuild refuses to close a profile that is open', async () => {
   assert.doesNotThrow(() => core.refuseIfOpen({ running: () => { throw new Error('no'); } }, open, {}));
 });
 
+test('only one build of a profile runs at a time', () => {
+  reset();
+  let inner = null;
+  const outer = store.withBuildLock('claude', 'work', () => {
+    // What the scheduled agent and the clone's own launcher do when an app
+    // updates and the user opens the profile: both arrive at once.
+    inner = store.withBuildLock('claude', 'work', () => 'should not run');
+    return 'built';
+  });
+  assert.equal(outer.busy, false);
+  assert.equal(outer.value, 'built');
+  assert.equal(inner.busy, true, 'the second is told to go away, not queued');
+  assert.equal(inner.value, undefined);
+
+  // A different profile is not blocked by it.
+  const other = store.withBuildLock('claude', 'personal', () => 'fine');
+  assert.equal(other.busy, false);
+});
+
+test('the lock is released even when the build throws, and a dead one is broken', () => {
+  reset();
+  assert.throws(() => store.withBuildLock('claude', 'work', () => { throw new Error('boom'); }), /boom/);
+  // Released: the next build gets it.
+  assert.equal(store.withBuildLock('claude', 'work', () => 1).busy, false);
+
+  // One left behind by a process that died mid-build, older than the window.
+  const lock = path.join(HOME, 'build-claude-work.lock');
+  fs.writeFileSync(lock, '999999 whenever');
+  fs.utimesSync(lock, new Date(Date.now() - 3600_000), new Date(Date.now() - 3600_000));
+  assert.equal(store.withBuildLock('claude', 'work', () => 'took it').value, 'took it');
+  assert.equal(fs.existsSync(lock), false);
+});
+
+test('a profile whose launcher has been deleted is behind, not current', async () => {
+  const upd = await import('../src/update.js');
+  const gone = path.join(HOME, 'no-such-launcher.exe');
+  assert.equal(upd.artifactGone({ launcher: gone }), true);
+  assert.equal(upd.artifactGone({ bundle: HOME }), false, 'one that exists is fine');
+  // A record with nothing to point at is not claimed to be broken.
+  assert.equal(upd.artifactGone({}), false);
+});
+
 test.after(() => fs.rmSync(HOME, { recursive: true, force: true }));

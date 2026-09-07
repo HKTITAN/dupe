@@ -84,6 +84,47 @@ function withLock(fn) {
   }
 }
 
+/**
+ * One build of one profile at a time, across processes.
+ *
+ * Two things rebuild a macOS clone and they are triggered by the same event,
+ * not independently: when the stock app updates, launchd fires the scheduled
+ * agent (it watches the bundle), and the clone's own launcher rebuilds when
+ * the user next opens it. "The app updated and then I opened it" is the
+ * ordinary case, and both used to run at once — deleting each other's
+ * staging directory mid-copy, both killing the app the user had open, and
+ * one of them shipping a clone whose Frameworks folder was half-copied.
+ *
+ * A second builder does not queue: a build legitimately takes a minute, and
+ * by the time it finished the first would have made the profile current
+ * anyway. It is told to go away and let the other one finish.
+ *
+ * Separate from the store lock, and much longer-lived: that one is held for
+ * two file operations, this one for a whole clone and codesign.
+ */
+export function withBuildLock(app, profile, fn, { staleMs = 15 * 60_000 } = {}) {
+  fs.mkdirSync(DUPE_HOME, { recursive: true });
+  const lock = path.join(DUPE_HOME, `build-${app}-${profile}.lock`);
+  let fd = null;
+  try {
+    fd = fs.openSync(lock, 'wx');
+  } catch (e) {
+    if (e.code !== 'EEXIST') throw e;
+    let age = Infinity;
+    try { age = Date.now() - fs.statSync(lock).mtimeMs; } catch { /* it just went */ }
+    if (age < staleMs) return { busy: true };
+    // Left behind by something that died mid-build.
+    try { fs.rmSync(lock, { force: true }); fd = fs.openSync(lock, 'wx'); } catch { return { busy: true }; }
+  }
+  try {
+    try { fs.writeSync(fd, `${process.pid} ${new Date().toISOString()}\n`); } catch { /* the lock is the file existing */ }
+    return { busy: false, value: fn() };
+  } finally {
+    try { fs.closeSync(fd); } catch { /* already closed */ }
+    try { fs.rmSync(lock, { force: true }); } catch { /* already gone */ }
+  }
+}
+
 /** Write one profile into whatever the store says right now, rather than
  *  into a copy of it read minutes ago. `ifPresent` declines to resurrect a
  *  profile that was removed while its rebuild was running. */

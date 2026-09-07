@@ -107,8 +107,11 @@ export function build(app, opts, log = () => {}) {
     throw new Error(`${dup} already exists and dupe didn't build it. Pick a different --label.`);
   }
   // Everything is built here and moved into place at the end, so a failure
-  // half way leaves the profile you already had, not a broken bundle.
-  const staging = `${dup}.dupe-building`;
+  // half way leaves the profile you already had, not a broken bundle. The
+  // name carries the pid: two dupes building the same profile used to share
+  // one path and delete each other's copy mid-flight. A build lock now makes
+  // that rare, but the path should not be the thing relied on.
+  const staging = `${dup}.dupe-building-${process.pid}`;
   const info = path.join(src, 'Contents', 'Info.plist');
   const exeName = plist(info, 'Print :CFBundleExecutable');
   let iconFile = plistTry(info, 'Print :CFBundleIconFile') || 'electron.icns';
@@ -123,6 +126,7 @@ export function build(app, opts, log = () => {}) {
     log(`  icon        ${opts.iconFile ? path.basename(opts.iconFile) : iconFile} ${source.width}px → ${opts.color} (${treatment})`);
 
     log(`  clone       ${dup}`);
+    sweepStaging(dup);
     fs.rmSync(staging, { recursive: true, force: true });
     // APFS copy-on-write clone; falls back to a plain copy on other filesystems.
     // Root-owned unreadable files are skipped — the app can't read them either,
@@ -216,6 +220,24 @@ export function build(app, opts, log = () => {}) {
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
     fs.rmSync(staging, { recursive: true, force: true }); // a no-op once it has been renamed into place
+  }
+}
+
+// Staging directories left by a build that died. Only ones whose process is
+// gone: another dupe may be part way through its own copy right now.
+function sweepStaging(dup) {
+  const dir = path.dirname(dup);
+  const prefix = `${path.basename(dup)}.dupe-building-`;
+  let entries = [];
+  try { entries = fs.readdirSync(dir); } catch { return; }
+  for (const name of entries) {
+    if (!name.startsWith(prefix)) continue;
+    const pid = Number(name.slice(prefix.length));
+    if (pid && pid !== process.pid) {
+      try { process.kill(pid, 0); continue; } catch { /* no such process: it died */ }
+    }
+    if (pid === process.pid) continue;
+    fs.rmSync(path.join(dir, name), { recursive: true, force: true });
   }
 }
 

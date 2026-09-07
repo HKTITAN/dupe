@@ -18,7 +18,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { findApp, customApp } from './apps.js';
 import * as core from './core.js';
-import { LOG_FILE, commitProfile, loadStore, slug } from './store.js';
+import { LOG_FILE, commitProfile, loadStore, slug, withBuildLock } from './store.js';
 import { VERSION } from './embedded.js';
 import { writeState } from './schedule.js';
 
@@ -32,6 +32,19 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function safe(fn, fallback = null) {
   try { return fn(); } catch { return fallback; }
+}
+
+/** Where the profile actually lives: the clone, the launcher, the entry. */
+export function artifactOf(record) {
+  return record.bundle || record.launcher || record.desktop || null;
+}
+
+/** A profile whose launcher has been deleted is behind in the way that
+ *  matters most — there is nothing to open — and the fingerprint would
+ *  happily call it current, because the stock app has not moved. */
+export function artifactGone(record) {
+  const at = artifactOf(record);
+  return !!at && !fs.existsSync(at);
 }
 
 /** The preset (or custom app) a stored profile was built from. A record
@@ -92,13 +105,14 @@ export async function check({ app, profile } = {}) {
     if (onlyProfile && record.profile !== onlyProfile) continue;
     if (!stamps.has(record.app)) stamps.set(record.app, safe(() => be.stamp(appOf(record))));
     const stamp = stamps.get(record.app);
-    const state = classify(record, stamp, VERSION);
+    const gone = artifactGone(record);
+    const state = gone && stamp ? 'stale' : classify(record, stamp, VERSION);
     // First look at a profile built by an older dupe: adopt today's
     // fingerprint so every later check is an exact comparison.
     if (stamp && state === 'current' && record.sourceStamp !== stamp.id) { record.sourceStamp = stamp.id; adopted.push({ ...record }); }
     profiles.push({
       app: record.app, appName: record.appName, profile: record.profile, label: record.label, color: record.color,
-      state, why: state === 'stale' ? whyStale(record, stamp, VERSION) : null,
+      state, why: state === 'stale' ? (gone ? 'its launcher is gone' : whyStale(record, stamp, VERSION)) : null,
       version: stamp ? stamp.version : null, source: stamp ? stamp.path : record.source,
       builtAt: record.builtAt || null, builtBy: record.builtBy || null,
       running: state === 'stale' ? !!safe(() => be.running(record), false) : false,
@@ -148,7 +162,7 @@ export async function update({ app, profile, all = false, force = false, schedul
     const preset = appOf(record);
     if (!stamps.has(record.app)) stamps.set(record.app, safe(() => be.stamp(preset)));
     let stamp = stamps.get(record.app);
-    const state = classify(record, stamp, VERSION);
+    const state = artifactGone(record) && stamp ? 'stale' : classify(record, stamp, VERSION);
     const where = `${record.appName} · ${record.profile}`;
 
     if (state === 'missing') {
@@ -176,11 +190,27 @@ export async function update({ app, profile, all = false, force = false, schedul
       stamps.set(record.app, stamp);
     }
 
+    // Asked once above so a profile that is already open never waits at all,
+    // and again here because settle() sleeps ninety seconds by design — and
+    // those are exactly the ninety seconds after an app updated in which
+    // someone opens it. Rebuilding then takes the window away mid-sentence.
+    if (!force && safe(() => be.running(record), false)) {
+      result.deferred.push({ app: record.app, profile: record.profile, label: record.label });
+      log(`${where}  opened while we waited — leaving it until it's closed`);
+      continue;
+    }
+
     log(`${where}  "${record.label}"  ${record.color}`);
     if (stamp && stamp.version) log(`  stock app   ${path.basename(stamp.path)} ${stamp.version}`);
     try {
       const opts = core.prepare(preset, record.profile, {}, store, record);
-      const built = be.build(preset, opts, log);
+      const attempt = withBuildLock(record.app, record.profile, () => be.build(preset, opts, log));
+      if (attempt.busy) {
+        result.deferred.push({ app: record.app, profile: record.profile, label: record.label, reason: 'building' });
+        log(`${where}  something else is already rebuilding it`);
+        continue;
+      }
+      const built = attempt.value;
       // darwin records its own while cloning; the rest are stamped here.
       built.sourceStamp = built.sourceStamp || (stamp || {}).id || null;
       built.builtBy = VERSION;
